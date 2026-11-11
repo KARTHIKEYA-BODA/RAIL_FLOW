@@ -1,0 +1,725 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { BarChart3, PieChart, TrendingUp, AlertCircle, Clock, Train, Settings, RefreshCw } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart as RechartsPie,
+  ResponsiveContainer,
+  Tooltip,
+  Legend,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { PageHeader } from './layout/PageHeader';
+import { Button } from './ui/Button';
+import { PRODUCT_COPY } from '../lib/productCopy';
+import { useOperationsFeed } from '../context/OperationsFeedContext';
+import { getMockAnalyticsSummary, getMockAnalyticsTrends } from '../lib/mockRailwayData';
+import { formatTime } from '../lib/dateTimeUtils';
+
+interface AnalyticsData {
+  summary: {
+    total_trains: number;
+    on_time_trains: number;
+    delayed_trains: number;
+    on_time_percentage: number;
+    average_delay_minutes: number;
+    total_delay_minutes: number;
+  };
+  delays_by_station: Record<string, number>;
+  delays_by_train_type: Record<string, number>;
+  platform_utilization: Record<string, number>;
+  conflicts_analysis: {
+    total_conflicts: number;
+    by_type: Record<string, number>;
+    by_severity: Record<string, number>;
+  };
+  active_overrides: number;
+  active_delays: number;
+  optimizer_mode: string;
+  last_updated: string;
+}
+
+interface OptimizerSettings {
+  mode: 'greedy' | 'ilp';
+  objective: 'minimize_delays' | 'minimize_conflicts' | 'balanced';
+  time_limit_seconds: number;
+}
+
+const AnalyticsDashboard: React.FC = () => {
+  const { conflictCount, conflictList, activeDelays, trains, isLiveBackend } = useOperationsFeed();
+
+  const [analyticsSource, setAnalytics] = useState<AnalyticsData | null>(null);
+  const analytics = useMemo(() => {
+    if (!analyticsSource || isLiveBackend) return analyticsSource;
+    const late = new Set(activeDelays.map(d => d.train_id));
+    const totalDelay = activeDelays.reduce((sum, d) => sum + d.minutes, 0);
+    const onTime = trains.filter(t => !late.has(t.id)).length;
+    const byType: Record<string, number> = {};
+    const bySeverity: Record<string, number> = {};
+    for (const conflict of conflictList ?? []) {
+      const type = conflict.type || 'Unknown';
+      const severity = conflict.severity || 'Unknown';
+      byType[type] = (byType[type] || 0) + 1;
+      bySeverity[severity] = (bySeverity[severity] || 0) + 1;
+    }
+    return { ...analyticsSource, summary: {
+      total_trains: trains.length, on_time_trains: onTime, delayed_trains: late.size,
+      on_time_percentage: trains.length ? Number((100 * onTime / trains.length).toFixed(1)) : 0,
+      average_delay_minutes: trains.length ? totalDelay / trains.length : 0, total_delay_minutes: totalDelay,
+    }, conflicts_analysis: { total_conflicts: conflictCount, by_type: byType, by_severity: bySeverity }, active_delays: late.size };
+  }, [analyticsSource, isLiveBackend, activeDelays, trains, conflictCount, conflictList]);
+
+  const [loading, setLoading] = useState(true);
+  const [optimizerSettings, setOptimizerSettings] = useState<OptimizerSettings>({
+    mode: 'greedy',
+    objective: 'balanced',
+    time_limit_seconds: 30
+  });
+  const [showSettings, setShowSettings] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [trends, setTrends] = useState<
+    Array<{
+      timestamp: string;
+      on_time_percentage: number;
+      average_delay_minutes: number;
+      conflict_count: number;
+      delays_by_station?: Record<string, number>;
+    }>
+  >([]);
+
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+  useEffect(() => {
+    fetchAnalytics();
+    fetchOptimizerSettings();
+    fetchTrends();
+    
+    const interval = setInterval(() => {
+      void fetchAnalytics();
+      void fetchTrends();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchTrends = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/analytics/trends`);
+      if (response.ok) {
+        const data = await response.json();
+        setTrends(data.points || []);
+      } else {
+        setTrends(getMockAnalyticsTrends());
+      }
+    } catch (error) {
+      console.error('Error fetching trends:', error);
+      setTrends(getMockAnalyticsTrends());
+    }
+  };
+
+  const fetchAnalytics = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/analytics/summary`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.summary) {
+          setAnalytics(data);
+        } else {
+          setAnalytics(getMockAnalyticsSummary() as any);
+        }
+      } else {
+        setAnalytics(getMockAnalyticsSummary() as any);
+      }
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+      setAnalytics(getMockAnalyticsSummary() as any);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchOptimizerSettings = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/settings/optimizer`);
+      if (response.ok) {
+        const settings = await response.json();
+        setOptimizerSettings(settings);
+      }
+    } catch (error) {
+      console.error('Error fetching optimizer settings:', error);
+    }
+  };
+
+  const updateOptimizerSettings = async () => {
+    setUpdating(true);
+    try {
+      const response = await fetch(`${API_BASE}/settings/optimizer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(optimizerSettings)
+      });
+      
+      if (response.ok) {
+        setShowSettings(false);
+        await fetchAnalytics(); // Refresh analytics after settings change
+      }
+    } catch (error) {
+      console.error('Error updating optimizer settings:', error);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const refreshAnalytics = async () => {
+    setLoading(true);
+    await Promise.all([fetchAnalytics(), fetchTrends()]);
+  };
+
+  const heatmapStations = useMemo(() => {
+    const ids = new Set<string>();
+    Object.keys(analytics?.delays_by_station ?? {}).forEach((s) => ids.add(s));
+    trends.forEach((t) =>
+      Object.keys(t.delays_by_station ?? {}).forEach((s) => ids.add(s))
+    );
+    return [...ids].sort();
+  }, [analytics, trends]);
+
+  const heatmapColumns = useMemo(() => trends.slice(-12), [trends]);
+
+  const heatColor = (delay: number) => {
+    if (delay <= 2) return 'bg-green-600/80';
+    if (delay <= 5) return 'bg-yellow-600/80';
+    if (delay <= 10) return 'bg-orange-600/80';
+    return 'bg-red-600/80';
+  };
+
+  if (loading && !analytics) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center bg-surface-1 text-white">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p>Loading analytics...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!analytics) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center bg-surface-1 text-white">
+        <div className="text-center">
+          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <p>No analytics data available</p>
+          <button 
+            onClick={refreshAnalytics}
+            className="mt-4 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const getPerformanceColor = (percentage: number) => {
+    if (percentage >= 90) return 'text-green-400';
+    if (percentage >= 75) return 'text-yellow-400';
+    return 'text-red-400';
+  };
+
+  const getConflictSeverityColor = (severity: string) => {
+    switch (severity) {
+      case 'critical': return 'bg-red-600';
+      case 'high': return 'bg-orange-500';
+      case 'medium': return 'bg-yellow-500';
+      case 'low': return 'bg-green-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const stationChartData = Object.entries(analytics.delays_by_station).map(([station, delay]) => ({
+    station,
+    delay: Number(delay.toFixed(1)),
+  }));
+
+  const typeChartData = Object.entries(analytics.delays_by_train_type).map(([type, delay]) => ({
+    name: type,
+    value: Number(delay.toFixed(1)),
+  }));
+
+  const conflictTypeData = Object.entries(analytics.conflicts_analysis.by_type).map(([type, count]) => ({
+    name: type.replace('_', ' '),
+    value: count,
+  }));
+
+  const PIE_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+
+  return (
+    <div className="dashboard-page bg-[#111816] p-0 text-[#f1f5ef]">
+      <div className="mx-auto">
+        <PageHeader
+          title="Analytics"
+          subtitle={PRODUCT_COPY.analytics}
+          actions={
+            <>
+              <Button variant="secondary" onClick={refreshAnalytics} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button variant="ghost" onClick={() => setShowSettings(true)}>
+                <Settings className="h-4 w-4" />
+                Settings
+              </Button>
+            </>
+          }
+        />
+
+        {(conflictCount > 0 || activeDelays.length > 0) && (
+          <div className="mb-6 rounded border border-[#344039] bg-[#1a231f] px-4 py-3 text-xs text-[#acb9b0]">
+            {isLiveBackend ? 'Current backend feed' : 'Simulation feed'}{' '}
+            <span className="font-mono text-[#ffab9e] font-medium">{conflictCount}</span> conflicts,{' '}
+            <span className="font-mono text-[#f2c278] font-medium">{activeDelays.length}</span> active delays
+          </div>
+        )}
+
+        {!isLiveBackend && <p className="mb-4 text-sm text-[#acb9b0]">Counts follow the current simulation. History charts use sample data.</p>}
+        {/* Key Performance Indicators */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <div className="flex items-center justify-between mb-2">
+              <Train className="w-8 h-8 text-blue-400" />
+              <span className="text-2xl font-bold">{analytics.summary.total_trains}</span>
+            </div>
+            <h3 className="text-[#acb9b0] text-xs">Total trains</h3>
+          </div>
+
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <div className="flex items-center justify-between mb-2">
+              <Clock className="w-8 h-8 text-green-400" />
+              <span className={`text-2xl font-bold ${getPerformanceColor(analytics.summary.on_time_percentage)}`}>
+                {analytics.summary.on_time_percentage}%
+              </span>
+            </div>
+            <h3 className="text-[#acb9b0] text-xs">On-time performance</h3>
+            <div className="text-xs text-slate-500 mt-1">
+              {analytics.summary.on_time_trains} of {analytics.summary.total_trains} trains
+            </div>
+          </div>
+
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <div className="flex items-center justify-between mb-2">
+              <TrendingUp className="w-8 h-8 text-yellow-400" />
+              <span className="text-2xl font-bold">{analytics.summary.average_delay_minutes.toFixed(1)}m</span>
+            </div>
+            <h3 className="text-[#acb9b0] text-xs">Average delay</h3>
+            <div className="text-xs text-slate-500 mt-1">
+              Fleet average: {analytics.summary.average_delay_minutes.toFixed(1)}m ({analytics.summary.total_delay_minutes}m total across {analytics.summary.total_trains} trains)
+            </div>
+          </div>
+
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <div className="flex items-center justify-between mb-2">
+              <AlertCircle className="w-8 h-8 text-red-400" />
+              <span className="text-2xl font-bold">{analytics.conflicts_analysis.total_conflicts}</span>
+            </div>
+            <h3 className="text-[#acb9b0] text-xs">Active conflicts</h3>
+            <div className="text-xs text-slate-500 mt-1">
+              {analytics.active_overrides} overrides active
+            </div>
+          </div>
+        </div>
+
+        {trends.length === 0 && (
+          <div className="mb-8 rounded-lg border border-dashed border-slate-600 bg-surface-2 p-6 text-center text-slate-400">
+            Refresh analytics to start recording trends (5-minute buckets).
+          </div>
+        )}
+
+        {trends.length > 0 && (
+          <div className="mb-8 rounded-lg border border-slate-700 bg-surface-2 p-6">
+            <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold">
+              <TrendingUp className="h-5 w-5" />
+              {isLiveBackend ? 'KPI trends' : 'Sample performance history'}
+            </h2>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trends}>
+                  <Legend wrapperStyle={{paddingTop:12, fontSize:12}}/>
+                  <XAxis
+                    dataKey="timestamp"
+                    stroke="#94a3b8"
+                    fontSize={10}
+                    tickFormatter={(v) => formatTime(v)}
+                  />
+                  <YAxis yAxisId="left" stroke="#94a3b8" fontSize={12} />
+                  <YAxis yAxisId="right" orientation="right" stroke="#94a3b8" fontSize={12} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: 8 }}
+                    labelFormatter={(v) => `Time: ${formatTime(v)}`}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="on_time_percentage"
+                    stroke="#22c55e"
+                    dot={false}
+                    name="On-time %"
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="average_delay_minutes"
+                    stroke="#f59e0b"
+                    dot={false}
+                    name="Avg delay (min)"
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="conflict_count"
+                    stroke="#ef4444"
+                    dot={false}
+                    name="Conflicts"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {heatmapStations.length > 0 && heatmapColumns.length > 0 && (
+          <div className="mb-8 rounded-lg border border-slate-700 bg-surface-2 p-6">
+            <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold">
+              <BarChart3 className="h-5 w-5" />
+              {isLiveBackend ? 'Station delay heatmap' : 'Sample station delay history'}
+            </h2>
+            <p className="mb-4 text-xs text-slate-500">
+              Average delay (minutes) per station across recent 5-minute trend buckets
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[480px] border-collapse text-xs">
+                <thead>
+                  <tr>
+                    <th className="p-2 text-left text-slate-400">Station</th>
+                    {heatmapColumns.map((col) => (
+                      <th key={col.timestamp} className="p-2 text-center text-slate-500 font-normal">
+                        {formatTime(col.timestamp)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {heatmapStations.map((stationId) => (
+                    <tr key={stationId}>
+                      <td className="p-2 font-mono text-slate-300">{stationId}</td>
+                      {heatmapColumns.map((col) => {
+                        const delay =
+                          col.delays_by_station?.[stationId] ??
+                          (col.timestamp === heatmapColumns[heatmapColumns.length - 1]?.timestamp
+                            ? analytics?.delays_by_station[stationId]
+                            : undefined) ??
+                          0;
+                        return (
+                          <td key={`${stationId}-${col.timestamp}`} className="p-1">
+                            <div
+                              className={`flex h-8 items-center justify-center rounded font-mono text-white ${heatColor(delay)}`}
+                              title={`${stationId}: ${delay.toFixed(1)}m`}
+                            >
+                              {delay.toFixed(0)}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Delays by Station */}
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <BarChart3 className="w-5 h-5" />
+              Delays by Station
+            </h2>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stationChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="station" stroke="#94a3b8" fontSize={12} />
+                  <YAxis stroke="#94a3b8" fontSize={12} unit="m" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: 8 }}
+                    labelStyle={{ color: '#f1f5f9' }}
+                  />
+                  <Bar dataKey="delay" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Delay (min)" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Delays by Train Type */}
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              <PieChart className="w-5 h-5" />
+              Delays by Train Type
+            </h2>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <RechartsPie>
+                  <Legend/>
+                  <Pie
+                    data={typeChartData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    label={({ name, value }) => `${name}: ${value}m`}
+                  >
+                    {typeChartData.map((_, index) => (
+                      <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: 8 }}
+                  />
+                </RechartsPie>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          {/* Platform Utilization */}
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <h2 className="text-xl font-semibold mb-4">Platform Utilization</h2>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {Object.entries(analytics.platform_utilization)
+                .sort(([,a], [,b]) => b - a)
+                .map(([platform, count]) => (
+                <div key={platform} className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{platform}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-16 bg-slate-700 rounded-full h-1.5">
+                      <div 
+                        className="bg-purple-500 h-1.5 rounded-full" 
+                        style={{ 
+                          width: `${Math.min(100, (count / Math.max(...Object.values(analytics.platform_utilization))) * 100)}%` 
+                        }}
+                      ></div>
+                    </div>
+                    <span className="text-slate-400 w-6 text-right">{count}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Conflicts by Type */}
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <h2 className="text-xl font-semibold mb-4">Conflicts by Type</h2>
+            {conflictTypeData.length > 0 ? (
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RechartsPie>
+                  <Legend/>
+                    <Pie
+                      data={conflictTypeData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={40}
+                      outerRadius={70}
+                      label
+                    >
+                      {conflictTypeData.map((_, index) => (
+                        <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: 8 }}
+                    />
+                  </RechartsPie>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-center text-slate-400 py-4">
+                No conflicts detected
+              </div>
+            )}
+          </div>
+
+          {/* Conflicts by Severity */}
+          <div className="bg-[#1a231f] rounded border border-[#344039] p-4">
+            <h2 className="text-xl font-semibold mb-4">Conflicts by Severity</h2>
+            <div className="space-y-3">
+              {Object.entries(analytics.conflicts_analysis.by_severity).map(([severity, count]) => (
+                <div key={severity} className="flex items-center justify-between">
+                  <span className="text-sm font-medium capitalize">{severity}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 bg-slate-700 rounded-full h-2">
+                      <div 
+                        className={`h-2 rounded-full ${getConflictSeverityColor(severity)}`}
+                        style={{ 
+                          width: `${Math.min(100, (count / Math.max(1, ...Object.values(analytics.conflicts_analysis.by_severity))) * 100)}%` 
+                        }}
+                      ></div>
+                    </div>
+                    <span className="text-slate-400 w-6 text-right">{count}</span>
+                  </div>
+                </div>
+              ))}
+              {Object.keys(analytics.conflicts_analysis.by_severity).length === 0 && (
+                <div className="text-center text-slate-400 py-4">
+                  No conflicts by severity
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* System Status */}
+        <div className="bg-slate-800 rounded-lg p-6">
+          <h2 className="text-xl font-semibold mb-4">System Status</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-2">
+              <h3 className="font-medium text-slate-300">Optimizer</h3>
+              <div className="text-sm">
+                <div className="flex justify-between">
+                  <span>Mode:</span>
+                  <span className="font-mono bg-slate-700 px-2 py-1 rounded text-xs">
+                    {analytics.optimizer_mode.toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span>Active Overrides:</span>
+                  <span className="font-mono">{analytics.active_overrides}</span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span>Active Delays:</span>
+                  <span className="font-mono">{analytics.active_delays}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-medium text-slate-300">Performance</h3>
+              <div className="text-sm">
+                <div className="flex justify-between">
+                  <span>Delayed Trains:</span>
+                  <span className="font-mono text-red-400">{analytics.summary.delayed_trains}</span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span>On-Time Trains:</span>
+                  <span className="font-mono text-green-400">{analytics.summary.on_time_trains}</span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span>Success Rate:</span>
+                  <span className={`font-mono ${getPerformanceColor(analytics.summary.on_time_percentage)}`}>
+                    {analytics.summary.on_time_percentage.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="font-medium text-slate-300">Last Updated</h3>
+              <div className="text-sm text-slate-400">
+                {new Date(analytics.last_updated).toLocaleString()}
+              </div>
+              <div className="text-xs text-slate-500">
+                Auto-refreshes every 30 seconds
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Settings Modal */}
+        {showSettings && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-slate-800 rounded-lg p-6 w-full max-w-md">
+              <h2 className="text-xl font-semibold mb-4">Optimizer Settings</h2>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Optimizer Mode</label>
+                  <select
+                    value={optimizerSettings.mode}
+                    onChange={(e) => setOptimizerSettings({
+                      ...optimizerSettings,
+                      mode: e.target.value as 'greedy' | 'ilp'
+                    })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2"
+                  >
+                    <option value="greedy">Greedy (Fast)</option>
+                    <option value="ilp">ILP (Optimal)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-2">Objective</label>
+                  <select
+                    value={optimizerSettings.objective}
+                    onChange={(e) => setOptimizerSettings({
+                      ...optimizerSettings,
+                      objective: e.target.value as any
+                    })}
+                    className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2"
+                  >
+                    <option value="minimize_delays">Minimize Delays</option>
+                    <option value="minimize_conflicts">Minimize Conflicts</option>
+                    <option value="balanced">Balanced</option>
+                  </select>
+                </div>
+
+                {optimizerSettings.mode === 'ilp' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Time Limit (seconds)</label>
+                    <input
+                      type="number"
+                      value={optimizerSettings.time_limit_seconds}
+                      onChange={(e) => setOptimizerSettings({
+                        ...optimizerSettings,
+                        time_limit_seconds: parseInt(e.target.value) || 30
+                      })}
+                      min="5"
+                      max="300"
+                      className="w-full bg-slate-700 border border-slate-600 rounded px-3 py-2"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={updateOptimizerSettings}
+                  disabled={updating}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white py-2 rounded"
+                >
+                  {updating ? 'Updating...' : 'Update Settings'}
+                </button>
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="flex-1 bg-slate-600 hover:bg-slate-500 text-white py-2 rounded"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default AnalyticsDashboard;
+

@@ -1,0 +1,1083 @@
+/* ==========================================================================
+   SORVO UI/UX DESIGN SYSTEM FOR RAIL_HACK (TrainVision AI)
+   Frosted glassmorphism, warm orange accents, collapsible sidebar,
+   interactive curves, and atmospheric OCC control room styling.
+   Full dual-theme support for Day (Light) and Night (Dark) OCC modes.
+   ========================================================================== */
+
+/* ==========================================================================
+   SORVO DUAL-THEME COLOR SYSTEM
+   ========================================================================== */
+
+/* Day / Light Mode (Default & [data-theme=day]) */
+:root {
+  --sorvo-orange: #f07a2e;
+  --sorvo-orange-dark: #dc6516;
+  --sorvo-emerald: #16a34a;
+  --sorvo-amber: #d97706;
+  --sorvo-rose: #e11d48;
+  --sorvo-ice: #2563eb;
+  
+  --sorvo-card-bg: #ffffff;
+  --sorvo-card-subtle: #f8fafc;
+  --sorvo-card-border: #e2e8f0;
+  --sorvo-card-hover-border: #cbd5e1;
+  --sorvo-card-active-bg: rgba(240, 122, 46, 0.08);
+  
+  --sorvo-text-title: #0f172a;
+  --sorvo-text-body: #334155;
+  --sorvo-text-muted: #64748b;
+  
+  --sorvo-topbar-bg: rgba(255, 255, 255, 0.92);
+  --sorvo-topbar-border: rgba(0, 0, 0, 0.08);
+  
+  --sorvo-chart-surface: #f1f5f9;
+  --sorvo-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  
+  --sorvo-curve-bg: #f8fafc;
+  --sorvo-curve-border: #e2e8f0;
+  --sorvo-guide-line: rgba(0, 0, 0, 0.2);
+  --sorvo-guide-text: rgba(0, 0, 0, 0.45);
+}
+
+/* Night / Dark Mode ([data-theme=night]) */
+:root[data-theme=night] {
+  --sorvo-orange: #ff8c42;
+  --sorvo-orange-dark: #f07a2e;
+  --sorvo-emerald: #5fe0b8;
+  --sorvo-amber: #f2c26b;
+  --sorvo-rose: #ff978c;
+  --sorvo-ice: #8cc7ff;
+  
+  --sorvo-card-bg: rgba(20, 26, 34, 0.85);
+  --sorvo-card-subtle: rgba(14, 18, 26, 0.7);
+  --sorvo-card-border: rgba(255, 255, 255, 0.08);
+  --sorvo-card-hover-border: rgba(255, 255, 255, 0.16);
+  --sorvo-card-active-bg: rgba(255, 140, 66, 0.12);
+  
+  --sorvo-text-title: #f1f5ef;
+  --sorvo-text-body: #d1dbd3;
+  --sorvo-text-muted: #acb9b0;
+  
+  --sorvo-topbar-bg: rgba(18, 24, 32, 0.85);
+  --sorvo-topbar-border: rgba(255, 255, 255, 0.08);
+  
+  --sorvo-chart-surface: rgba(14, 19, 25, 0.7);
+  --sorvo-shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+  
+  --sorvo-curve-bg: rgba(22, 28, 38, 0.75);
+  --sorvo-curve-border: rgba(255, 255, 255, 0.1);
+  --sorvo-guide-line: rgba(255, 255, 255, 0.25);
+  --sorvo-guide-text: rgba(255, 255, 255, 0.4);
+}
+
+/* Atmospheric wallpaper backdrop */
+.rail-app {
+  background-color: var(--page, #f4f6f9);
+  min-height: 100vh;
+}
+:root[data-theme=night] .rail-app {
+  background-color: var(--page, #0e151f);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(255, 140, 66, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(95, 224, 184, 0.04) 0px, transparent 40%),
+    radial-gradient(at 50% 100%, rgba(140, 199, 255, 0.03) 0px, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* Frosted Glass Utilities */
+.sorvo-glass {
+  background: var(--sorvo-card-bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--sorvo-card-border);
+  box-shadow: var(--sorvo-shadow);
+}
+
+/* Warm Orange Pill Button */
+.sorvo-btn-primary {
+  background: linear-gradient(135deg, var(--sorvo-orange) 0%, var(--sorvo-orange-dark) 100%);
+  color: #ffffff !important;
+  font-weight: 600;
+  border-radius: 9999px;
+  padding: 8px 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(240, 122, 46, 0.35);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+}
+.sorvo-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(240, 122, 46, 0.45);
+  filter: brightness(1.05);
+}
+.sorvo-btn-primary:active {
+  transform: translateY(0);
+}
+
+/* Collapsible Dual-Mode Sidebar */
+.rail-sidebar {
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.rail-sidebar.collapsed {
+  width: 68px !important;
+}
+.rail-work.sidebar-collapsed {
+  margin-left: 68px !important;
+}
+
+/* Hide all text, subtitles and headers strictly when sidebar is collapsed */
+.rail-sidebar.collapsed .rail-brand div,
+.rail-sidebar.collapsed .rail-brand small,
+.rail-sidebar.collapsed .rail-brand-text,
+.rail-sidebar.collapsed .collapse-toggle,
+.rail-sidebar.collapsed .rail-navlabel,
+.rail-sidebar.collapsed .sorvo-nav-group-title,
+.rail-sidebar.collapsed nav > button span,
+.rail-sidebar.collapsed .rail-navbottom button span,
+.rail-sidebar.collapsed .rail-division div,
+.rail-sidebar.collapsed .rail-division strong,
+.rail-sidebar.collapsed .rail-division small {
+  display: none !important;
+}
+
+.rail-sidebar.collapsed .rail-brand {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 14px 0 !important;
+  height: 64px !important;
+}
+
+.rail-sidebar.collapsed .rail-navscroll {
+  padding: 8px 6px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.rail-sidebar.collapsed nav {
+  width: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 3px !important;
+}
+
+.rail-sidebar.collapsed nav > button,
+.rail-sidebar.collapsed .rail-navbottom button {
+  width: 44px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  padding: 0 !important;
+  margin: 1px auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 9px !important;
+  position: relative !important;
+}
+
+.rail-sidebar.collapsed nav > button svg,
+.rail-sidebar.collapsed .rail-navbottom button svg {
+  margin: 0 !important;
+  width: 18px !important;
+  height: 18px !important;
+  flex-shrink: 0 !important;
+}
+
+/* Show subtle 1px divider between groups in collapsed rail mode */
+.sorvo-nav-divider {
+  display: none;
+}
+.rail-sidebar.collapsed .sorvo-nav-divider {
+  display: block !important;
+  width: 32px !important;
+  height: 1px !important;
+  background: var(--sorvo-card-border) !important;
+  margin: 8px auto !important;
+}
+
+/* Badge dot when collapsed */
+.rail-sidebar.collapsed .rail-count {
+  position: absolute !important;
+  top: 5px !important;
+  right: 5px !important;
+  width: 7px !important;
+  height: 7px !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  background: #ff4d4f !important;
+  border: 1px solid var(--sidebar) !important;
+  font-size: 0 !important;
+  line-height: 0 !important;
+  margin: 0 !important;
+}
+
+.rail-sidebar.collapsed .rail-navbottom {
+  padding: 8px 6px 12px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  gap: 3px !important;
+}
+
+.rail-sidebar.collapsed .rail-division {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  padding: 8px 0 2px !important;
+  margin-top: 4px !important;
+  width: 100% !important;
+}
+
+.rail-sidebar.collapsed .sorvo-profile-avatar {
+  margin: 0 auto !important;
+}
+
+/* Sorvo Active State Navigation Pill */
+.rail-app :is(.rail-sidebar, .mobile-nav-inner) nav > button[aria-current] {
+  background: linear-gradient(135deg, var(--sorvo-orange) 0%, var(--sorvo-orange-dark) 100%) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px rgba(240, 122, 46, 0.35) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+}
+.rail-app :is(.rail-sidebar, .mobile-nav-inner) nav > button[aria-current] svg {
+  color: #ffffff !important;
+}
+
+/* Navigation Group Titles */
+.sorvo-nav-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--sorvo-text-muted);
+  padding: 12px 10px 4px;
+  margin: 0;
+}
+
+/* Duty Controller Profile Card */
+.sorvo-profile-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--sorvo-card-subtle);
+  border: 1.5px solid var(--sorvo-emerald);
+  color: var(--sorvo-emerald);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  position: relative;
+}
+.sorvo-online-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sorvo-emerald);
+  border: 1.5px solid var(--sidebar);
+  box-shadow: 0 0 6px var(--sorvo-emerald);
+}
+
+.rail-division {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  padding: 10px 10px 4px !important;
+  border-top: 1px solid var(--sorvo-card-border) !important;
+  margin-top: 8px !important;
+  min-height: 48px !important;
+}
+
+.rail-division > div:last-child {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  min-width: 0 !important;
+  line-height: 1.25 !important;
+  gap: 2px !important;
+}
+
+.rail-division strong {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--sorvo-text-title) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  line-height: 1.25 !important;
+  display: block !important;
+  margin: 0 !important;
+}
+
+.rail-division small {
+  font-size: 11px !important;
+  color: var(--sorvo-text-muted) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  line-height: 1.2 !important;
+  display: block !important;
+  margin: 0 !important;
+}
+
+/* Real-time Ticker Histogram */
+.sorvo-histogram-bar {
+  transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s ease;
+  border-radius: 3px 3px 0 0;
+}
+.sorvo-histogram-bar:hover {
+  filter: brightness(1.25);
+}
+
+/* Clean Header Breadcrumb */
+.sorvo-topbar {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: var(--sorvo-topbar-bg) !important;
+  border-bottom: 1px solid var(--sorvo-topbar-border) !important;
+}
+
+.sorvo-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--sorvo-text-muted);
+}
+.sorvo-breadcrumb-slash {
+  opacity: 0.4;
+  color: var(--sorvo-text-muted);
+}
+.sorvo-breadcrumb-current {
+  color: var(--sorvo-text-title);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   SEMANTIC INK COLOR SYSTEM
+   ========================================================================== */
+.ink-amber { color: var(--sorvo-amber) !important; }
+.ink-coral { color: var(--sorvo-rose) !important; }
+.ink-mint  { color: var(--sorvo-emerald) !important; }
+.ink-blue  { color: var(--sorvo-ice) !important; }
+
+/* ==========================================================================
+   SORVO HERO & TELEMETRY CARDS (Day & Night Responsive)
+   ========================================================================== */
+.sorvo-hero-card {
+  background: var(--sorvo-card-bg) !important;
+  border-color: var(--sorvo-card-border) !important;
+  box-shadow: var(--sorvo-shadow) !important;
+}
+
+.sorvo-telemetry-card {
+  background: var(--sorvo-card-bg) !important;
+  border-color: var(--sorvo-card-border) !important;
+  box-shadow: var(--sorvo-shadow) !important;
+}
+
+.sorvo-hero-title {
+  color: var(--sorvo-text-title) !important;
+}
+
+.sorvo-hero-subtitle {
+  color: var(--sorvo-text-muted) !important;
+}
+
+.sorvo-muted-text {
+  color: var(--sorvo-text-muted) !important;
+}
+
+.sorvo-stat-box {
+  background: var(--sorvo-card-subtle) !important;
+  border-color: var(--sorvo-card-border) !important;
+}
+
+.sorvo-stat-label {
+  color: var(--sorvo-text-muted) !important;
+}
+
+.sorvo-stat-value {
+  color: var(--sorvo-text-title) !important;
+}
+
+.sorvo-curve-card {
+  background: var(--sorvo-curve-bg) !important;
+  border-color: var(--sorvo-curve-border) !important;
+  border-radius: 14px;
+  overflow: hidden;
+  position: relative;
+}
+
+.sorvo-curve-title {
+  color: var(--sorvo-text-title) !important;
+}
+
+.sorvo-curve-guide {
+  stroke: var(--sorvo-guide-line) !important;
+}
+
+.sorvo-curve-guide-text {
+  fill: var(--sorvo-guide-text) !important;
+}
+
+.sorvo-border-subtle {
+  border-color: var(--sorvo-card-border) !important;
+}
+
+.sorvo-quiet-btn {
+  background: var(--sorvo-card-subtle) !important;
+  border-color: var(--sorvo-card-border) !important;
+  color: var(--sorvo-text-body) !important;
+}
+
+.sorvo-quiet-btn:hover {
+  border-color: var(--sorvo-card-hover-border) !important;
+  color: var(--sorvo-text-title) !important;
+}
+
+.sorvo-telemetry-count {
+  color: var(--sorvo-text-title) !important;
+}
+
+.sorvo-hist-container {
+  background: var(--sorvo-chart-surface) !important;
+  border-color: var(--sorvo-card-border) !important;
+}
+
+.sorvo-rake-card {
+  background: var(--sorvo-card-subtle) !important;
+  border-color: var(--sorvo-card-border) !important;
+}
+
+.sorvo-rake-title {
+  color: var(--sorvo-text-title) !important;
+}
+
+.sorvo-scrub-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--sorvo-orange);
+  box-shadow: 0 0 10px var(--sorvo-orange);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.sorvo-scrub-handle {
+  position: absolute;
+  top: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid var(--sorvo-orange);
+  box-shadow: 0 0 8px var(--sorvo-orange);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 11;
+}
+
+/* ==========================================================================
+   PLATFORM BOARD STYLES (Station Management & Occupancy Grid)
+   ========================================================================== */
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.overview .page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.overview .page-heading h1 {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--sorvo-text-title);
+  margin: 4px 0 0;
+}
+
+.overview .page-heading p {
+  font-size: 14px;
+  color: var(--sorvo-text-muted);
+  margin: 4px 0 0;
+}
+
+/* Station Switcher Tabs */
+.station-switcher {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.station-switcher button {
+  flex: 1;
+  min-width: 220px;
+  padding: 14px 18px;
+  background: var(--sorvo-card-bg) !important;
+  border: 1px solid var(--sorvo-card-border) !important;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  text-align: left;
+  box-shadow: var(--sorvo-shadow);
+}
+
+.station-switcher button:hover {
+  background: var(--sorvo-card-subtle) !important;
+  border-color: var(--sorvo-card-hover-border) !important;
+  transform: translateY(-1px);
+}
+
+.station-switcher button[aria-pressed="true"] {
+  background: var(--sorvo-card-active-bg) !important;
+  border-color: var(--sorvo-orange) !important;
+  box-shadow: 0 0 20px rgba(255, 140, 66, 0.22) !important;
+}
+
+.station-switcher button > span:first-child {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--sorvo-orange);
+  font-family: 'IBM Plex Mono', monospace;
+  text-transform: uppercase;
+}
+
+.station-switcher button strong {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--sorvo-text-title) !important;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.station-switcher button small {
+  font-size: 12px;
+  color: var(--sorvo-text-muted) !important;
+  font-weight: 500;
+}
+
+.station-switcher button .status-label.danger {
+  margin-top: 6px;
+  font-size: 11px;
+  padding: 3px 8px;
+  background: rgba(255, 107, 107, 0.15);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-radius: 6px;
+  color: var(--sorvo-rose);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Platform Legend Bar */
+.platform-legend {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: var(--sorvo-card-subtle) !important;
+  border: 1px solid var(--sorvo-card-border) !important;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--sorvo-text-muted) !important;
+}
+
+.platform-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Platform Grid & Cards */
+.platform-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.platform-card {
+  background: var(--sorvo-card-bg) !important;
+  border: 1px solid var(--sorvo-card-border) !important;
+  border-radius: 14px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--sorvo-shadow);
+}
+
+.platform-card:hover {
+  border-color: var(--sorvo-card-hover-border) !important;
+  transform: translateY(-2px);
+}
+
+.platform-card.has-conflict {
+  border-color: rgba(255, 107, 107, 0.6) !important;
+  box-shadow: 0 0 24px rgba(255, 107, 107, 0.18) !important;
+}
+
+.platform-card.has-delay {
+  border-color: rgba(242, 194, 107, 0.5) !important;
+}
+
+.platform-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--sorvo-card-border);
+}
+
+.platform-card header h2 {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--sorvo-text-title) !important;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.platform-card header span {
+  font-size: 12px;
+  font-weight: 650;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--sorvo-card-subtle) !important;
+  border: 1px solid var(--sorvo-card-border) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.platform-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.platform-content .train-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--sorvo-orange) !important;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s ease;
+}
+
+.platform-content .train-title:hover {
+  text-decoration: underline;
+}
+
+.platform-content > p {
+  font-size: 13px;
+  color: var(--sorvo-text-muted) !important;
+  margin: 0;
+}
+
+.platform-content dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  background: var(--sorvo-chart-surface) !important;
+  border: 1px solid var(--sorvo-card-border) !important;
+  border-radius: 10px;
+  padding: 12px 10px;
+  margin: 4px 0 0;
+}
+
+.platform-content dl > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.platform-content dl dt {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sorvo-text-muted) !important;
+}
+
+.platform-content dl dd {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--sorvo-text-title) !important;
+  font-family: 'IBM Plex Mono', monospace;
+  margin: 0;
+}
+
+.platform-content h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--sorvo-text-title) !important;
+  margin: 6px 0 2px;
+}
+
+.platform-content > svg {
+  margin-top: 4px;
+}
+
+.platform-next {
+  font-size: 12px;
+  color: var(--sorvo-text-muted) !important;
+  padding-top: 10px;
+  border-top: 1px solid var(--sorvo-card-border) !important;
+  margin-top: auto;
+}
+
+.platform-card .review-button {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  color: #fff !important;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  text-align: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(229, 62, 62, 0.35);
+  margin-top: auto;
+}
+
+.platform-card .review-button:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.service-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--sorvo-text-muted) !important;
+  background: transparent;
+  border: 1px solid var(--sorvo-card-border) !important;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: all 0.15s ease;
+}
+
+.service-control:hover:not(:disabled) {
+  background: var(--sorvo-card-subtle) !important;
+  color: var(--sorvo-text-title) !important;
+  border-color: var(--sorvo-card-hover-border) !important;
+}
+
+/* ==========================================================================
+   ALERT QUEUE STYLES (Conflict Resolution & Active Delays)
+   ========================================================================== */
+.activity-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.activity-filters button {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  background: var(--sorvo-card-bg) !important;
+  border: 1px solid var(--sorvo-card-border) !important;
+  color: var(--sorvo-text-muted) !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.activity-filters button:hover {
+  background: var(--sorvo-card-subtle) !important;
+  color: var(--sorvo-text-title) !important;
+}
+
+.activity-filters button[aria-pressed="true"] {
+  background: var(--sorvo-card-active-bg) !important;
+  border-color: var(--sorvo-orange) !important;
+  color: var(--sorvo-text-title) !important;
+}
+
+.alert-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.alert-card {
+  background: var(--sorvo-card-bg) !important;
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  border-left: 4px solid #ff6b6b;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--sorvo-shadow);
+}
+
+.alert-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.alert-card h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--sorvo-text-title) !important;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.train-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ownership {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--sorvo-text-muted) !important;
+  padding: 8px 12px;
+  background: var(--sorvo-card-subtle) !important;
+  border-radius: 8px;
+}
+
+.recommended-copy {
+  background: rgba(95, 224, 184, 0.12);
+  border: 1px solid rgba(95, 224, 184, 0.3);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recommended-copy h3 {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--sorvo-emerald) !important;
+  margin: 0;
+}
+
+.recommended-copy p {
+  font-size: 12.5px;
+  color: var(--sorvo-text-muted) !important;
+  margin: 0;
+}
+
+.alert-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.delay-card {
+  background: var(--sorvo-card-bg) !important;
+  border: 1px solid var(--sorvo-card-border) !important;
+  border-left: 4px solid var(--sorvo-amber);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.delay-card > div {
+  flex: 1;
+}
+
+.delay-card h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--sorvo-text-title) !important;
+  margin: 0 0 4px;
+}
+
+.delay-card p {
+  font-size: 13px;
+  color: var(--sorvo-text-muted) !important;
+  margin: 0;
+}
+
+/* ==========================================================================
+   SCHEDULE TABLE & TIMETABLE STYLES
+   ========================================================================== */
+.table-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.timetable-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--sorvo-card-border) !important;
+  border-radius: 12px;
+  background: var(--sorvo-card-bg) !important;
+}
+
+.timetable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.timetable th {
+  background: var(--sorvo-card-subtle) !important;
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 650;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--sorvo-text-muted) !important;
+  border-bottom: 1px solid var(--sorvo-card-border) !important;
+}
+
+.timetable th button {
+  background: transparent;
+  border: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.timetable td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--sorvo-card-border) !important;
+  color: var(--sorvo-text-title) !important;
+}
+
+.timetable tr:last-child td {
+  border-bottom: none;
+}
+
+.timetable tr:hover td {
+  background: var(--sorvo-card-subtle) !important;
+}
+
+.timetable tr.delayed-row td {
+  background: rgba(242, 194, 107, 0.08);
+}
+
+.timetable .train-link {
+  font-weight: 700;
+  font-family: 'IBM Plex Mono', monospace;
+  color: var(--sorvo-orange) !important;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 14px;
+}
+
+.timetable .train-link:hover {
+  text-decoration: underline;
+}
+
+.timetable td small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--sorvo-text-muted) !important;
+  margin-top: 2px;
+}
+
+.timetable td del {
+  color: var(--sorvo-text-muted) !important;
+  margin-right: 6px;
+  font-size: 12px;
+}
+
+.trip-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.trip-groups details {
+  background: var(--sorvo-card-bg) !important;
+  border: 1px solid var(--sorvo-card-border) !important;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.trip-groups summary {
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--sorvo-text-title) !important;
+}
+
+.table-footer {
+  font-size: 12px;
+  color: var(--sorvo-text-muted) !important;
+  margin-top: 12px;
+}
+
+/* Modal Surface Adaptability */
+.sorvo-modal-card {
+  background: var(--sorvo-card-bg) !important;
+  border-color: var(--sorvo-card-border) !important;
+  color: var(--sorvo-text-title) !important;
+}
