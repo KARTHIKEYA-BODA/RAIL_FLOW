@@ -16,34 +16,34 @@ function getCategory(log: ActivityLogEntry): {
     return {
       kind: 'override',
       label: 'Manual Override',
-      badgeStyle: 'bg-[#9ac4fb]/15 text-[#9ac4fb] border-[#9ac4fb]/40',
+      badgeStyle: 'bg-blue-500/15 text-blue-700 dark:text-[#9ac4fb] border-blue-500/40',
     };
   }
   if (act.includes('conflict') || det.includes('clash') || det.includes('double-book')) {
     return {
       kind: 'conflict',
       label: 'Safety Conflict',
-      badgeStyle: 'bg-[#ffab9e]/15 text-[#ffab9e] border-[#ffab9e]/40',
+      badgeStyle: 'bg-rose-500/15 text-rose-700 dark:text-[#ffab9e] border-rose-500/40',
     };
   }
   if (act.includes('ai') || act.includes('optimization') || act.includes('recommendation') || det.includes('solver') || det.includes('greedy')) {
     return {
       kind: 'ai',
       label: 'Dispatch Proposal',
-      badgeStyle: 'bg-[#9ac4fb]/15 text-[#9ac4fb] border-[#9ac4fb]/40',
+      badgeStyle: 'bg-blue-500/15 text-blue-700 dark:text-[#9ac4fb] border-blue-500/40',
     };
   }
   if (act.includes('delay') || det.includes('delay')) {
     return {
       kind: 'system',
       label: 'Delay Telemetry',
-      badgeStyle: 'bg-[#f2c278]/15 text-[#f2c278] border-[#f2c278]/40',
+      badgeStyle: 'bg-amber-500/15 text-amber-700 dark:text-[#f2c278] border-amber-500/40',
     };
   }
   return {
     kind: 'system',
     label: 'System Sync',
-    badgeStyle: 'bg-[#344039]/50 text-[#acb9b0] border-[#344039]',
+    badgeStyle: 'bg-slate-200 text-slate-700 border-slate-300 dark:bg-[#344039]/50 dark:text-[#acb9b0] dark:border-[#344039]',
   };
 }
 

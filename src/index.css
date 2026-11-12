@@ -3,41 +3,44 @@
 @tailwind utilities;
 
 :root {
-  /* Graphite ground and panel system */
-  --bg-0: #111816;
-  --bg-1: #1a231f;
-  --bg-2: #233128;
-  --line: #344039;
+  --amber: #f2b84b;
+  --amber-hot: #ffd377;
+  --signal: #55e0a3;
+  --cargo: #ff6a5c;
+  --blue: #93b8ff;
+  --line: rgba(255, 255, 255, 0.09);
+  --glass: rgba(28, 30, 33, 0.7);
 
-  /* High contrast text hierarchy */
-  --text-1: #f1f5ef;
-  --text-2: #acb9b0;
-  --text-3: #9aaa9f;
+  /* Legacy semantic mapping */
+  --bg-0: #1e1f22;
+  --bg-1: #25282d;
+  --bg-2: #2d3137;
+  --text-1: #f6f3ec;
+  --text-2: #b8b3a8;
+  --text-3: #827e75;
 
-  /* State colors - strictly semantic, zero decorative accent */
-  --ok: #9be7be;       /* Clear / nominal */
-  --warn: #f2c278;     /* Caution / delay */
-  --danger: #ffab9e;   /* Danger / safety clash */
-  --occupied: #9ac4fb; /* Occupied / track telemetry */
-
-  --radius: 8px;
-  --space: 8px;
+  --ok: #55e0a3;
+  --warn: #f2b84b;
+  --danger: #ff6a5c;
+  --occupied: #93b8ff;
 }
 
 @layer base {
   body {
-    background-color: var(--bg-0);
-    color: var(--text-1);
-    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 14px;
+    margin: 0;
+    background-color: #1e1f22;
+    background-image: radial-gradient(ellipse 80% 60% at 64% 34%, #35383b 0%, #2b2d30 42%, #1e1f22 100%);
+    background-attachment: fixed;
+    color: #f6f3ec;
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 13.5px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
-
+    text-rendering: optimizeLegibility;
   }
 
-  /* Monospace strictly for numbers, train IDs, timestamps */
   .font-mono {
-    font-family: 'IBM Plex Mono', 'SF Mono', ui-monospace, monospace;
+    font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
   }
 }
@@ -48,30 +51,225 @@
   }
 }
 
-/* Unified clean railway console scrollbars */
+::selection {
+  background: rgba(242, 184, 75, 0.32);
+  color: #fff;
+}
+
+/* Glassmorphism card system across whole app */
+.hud-card, .glass-card {
+  position: relative;
+  pointer-events: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 17px;
+  background:
+    linear-gradient(155deg, rgba(44, 46, 50, 0.8) 0%, rgba(25, 27, 30, 0.72) 58%, rgba(21, 22, 25, 0.8) 100%);
+  box-shadow:
+    0 28px 60px -34px rgba(0, 0, 0, 0.95),
+    0 2px 10px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.075);
+  backdrop-filter: blur(22px) saturate(135%);
+  -webkit-backdrop-filter: blur(22px) saturate(135%);
+  overflow: hidden;
+}
+
+.hud-card::before, .glass-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(110% 74% at 10% 0%, rgba(255, 255, 255, 0.06), transparent 48%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 36%);
+}
+
+.hud-card::after, .glass-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 18px;
+  right: 18px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 222, 169, 0.22), transparent);
+  pointer-events: none;
+}
+
+.eyebrow {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(246, 243, 236, 0.46);
+}
+
+.micro {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(246, 243, 236, 0.38);
+}
+
+.hero-title {
+  font-size: clamp(2.2rem, 4.2vw, 3.8rem);
+  line-height: 0.95;
+  letter-spacing: -0.046em;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.hero-title .accent, .accent {
+  background: linear-gradient(100deg, #fff6e2 0%, #f5c874 46%, #dba443 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 48px rgba(242, 184, 75, 0.12);
+}
+
+.priority-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 25px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.035);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: rgba(246, 243, 236, 0.58);
+  white-space: nowrap;
+}
+.priority-chip .pdot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(85, 224, 163, 0.18);
+  background: rgba(85, 224, 163, 0.055);
+  color: rgba(158, 240, 200, 0.88);
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.live-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 10px rgba(85, 224, 163, 0.8);
+}
+.live-dot::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 1px solid rgba(85, 224, 163, 0.32);
+  animation: ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes ping {
+  0% { transform: scale(0.5); opacity: 0.9; }
+  75%, 100% { transform: scale(1.8); opacity: 0; }
+}
+
+.clock-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+.clock-time {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  color: #fbf8f0;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.042);
+  color: rgba(246, 243, 236, 0.76);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+.btn:hover {
+  background: rgba(255, 255, 255, 0.085);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+.btn:active {
+  transform: translateY(0) scale(0.99);
+}
+.btn:focus-visible {
+  outline: 2px solid rgba(242, 184, 75, 0.7);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: linear-gradient(180deg, #f8cd79 0%, #eeb54d 100%);
+  border-color: rgba(255, 228, 171, 0.7);
+  color: #1c1710 !important;
+  box-shadow: 0 10px 28px -14px rgba(242, 184, 75, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.44);
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, #ffd98d, #f4c05a);
+  color: #17120a !important;
+  border-color: rgba(255, 238, 197, 0.9);
+  box-shadow: 0 14px 34px -14px rgba(242, 184, 75, 0.95);
+}
+
+.btn-warn {
+  border-color: rgba(255, 106, 92, 0.26);
+  background: rgba(255, 106, 92, 0.08);
+  color: #ffc8c2;
+}
+.btn-warn:hover {
+  background: rgba(255, 106, 92, 0.16);
+  border-color: rgba(255, 106, 92, 0.38);
+  color: #fff;
+}
+
+/* Custom rail scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--bg-0);
+  background: rgba(21, 23, 27, 0.7);
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--line);
+  background: rgba(255, 255, 255, 0.14);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3a4878;
+  background: rgba(242, 184, 75, 0.4);
 }
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-::selection { background:#365c45; color:white; }

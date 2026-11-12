@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import {
   Activity,
   BarChart3,
-  Bot,
   CalendarDays,
   CircleHelp,
   Clock3,
@@ -24,9 +23,12 @@ import {
   ShieldAlert,
   Sun,
   TrainFront,
+  Trophy,
   Volume2,
   VolumeX,
+  Wrench,
   X,
+  Zap,
 } from 'lucide-react';
 import App, { type AppSection } from './App';
 import { ShiftHandoverModal } from './components/operations/ShiftHandoverModal';
@@ -34,7 +36,8 @@ import { DecisionSupportModal } from './components/operations/DecisionSupportMod
 import { ImportAnalyseModal } from './components/operations/ImportAnalyseModal';
 import { FieldIncidentModal } from './components/operations/FieldIncidentModal';
 import { JudgeCheatSheetModal } from './components/operations/JudgeCheatSheetModal';
-import { ChatBot } from './components/ChatBot';
+import { DisruptionInjectorModal } from './components/operations/DisruptionInjectorModal';
+import { MaintenancePlannerModal } from './components/operations/MaintenancePlannerModal';
 import { ConfirmDialog } from './components/ui/ConfirmDialog';
 import { SkipLink } from './components/layout/SkipLink';
 import { useOperationsFeed } from './context/OperationsFeedContext';
@@ -51,8 +54,9 @@ import './sorvo-rail.css';
 
 const AnalyticsDashboard = lazy(() => import('./components/AnalyticsDashboard'));
 const SimulationDashboard = lazy(() => import('./components/SimulationDashboard'));
+const BenchmarkDashboard = lazy(() => import('./components/operations/BenchmarkDashboard').then(m => ({ default: m.BenchmarkDashboard })));
 
-type View = AppSection | 'analytics' | 'simulation';
+type View = AppSection | 'analytics' | 'simulation' | 'benchmarks';
 
 const pages = [
   { id: 'overview', title: 'Operations', icon: LayoutDashboard },
@@ -61,6 +65,8 @@ const pages = [
   { id: 'timeline', title: 'Timeline', icon: Clock3 },
   { id: 'schedule', title: 'Schedule', icon: CalendarDays },
   { id: 'conflicts', title: 'Conflicts', icon: ShieldAlert },
+  { id: 'sandbox', title: 'What-If Sandbox', icon: Play },
+  { id: 'benchmarks', title: 'PS-09 Benchmark', icon: Trophy },
   { id: 'activity', title: 'Activity', icon: Activity },
   { id: 'simulation', title: 'Simulation', icon: Play },
   { id: 'analytics', title: 'Analytics', icon: BarChart3 },
@@ -94,13 +100,14 @@ export default function AppWithDashboards() {
   const [view, setView] = useState<View>(currentView);
   const [menu, setMenu] = useState(false);
   const [toolsOpen, setTools] = useState(false);
-  const [chat, setChat] = useState(false);
   const [handover, setHandover] = useState(false);
   const [reset, setReset] = useState(false);
   const [help, setHelp] = useState(false);
   const [palette, setPalette] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [fieldIncidentOpen, setFieldIncidentOpen] = useState(false);
+  const [disruptionOpen, setDisruptionOpen] = useState(false);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   const [judgeCheatSheetOpen, setJudgeCheatSheetOpen] = useState(false);
   const [sidebarRail, setSidebarRail] = useState(false);
   const gSequenceRef = useRef(false);
@@ -279,6 +286,7 @@ export default function AppWithDashboards() {
         if (k === 's') { e.preventDefault(); navigate('schedule'); return; }
         if (k === 'c') { e.preventDefault(); navigate('conflicts'); return; }
         if (k === 'a') { e.preventDefault(); navigate('analytics'); return; }
+        if (k === 'b') { e.preventDefault(); navigate('benchmarks'); return; }
       }
       if (e.key === '?') {
         e.preventDefault();
@@ -368,17 +376,6 @@ export default function AppWithDashboards() {
             ))}
             <button
               type="button"
-              onClick={() => {
-                setMenu(false);
-                setChat(true);
-              }}
-              title="AI Assistant"
-            >
-              <Bot size={18} />
-              <span>AI Assistant</span>
-            </button>
-            <button
-              type="button"
               onClick={openCenter}
               title="Command Center"
             >
@@ -445,11 +442,29 @@ export default function AppWithDashboards() {
           <div className="rail-toolbar">
             <button
               className="sorvo-btn-primary"
+              onClick={() => setDisruptionOpen(true)}
+              title="Inject disruption: late priority train, locomotive failure, signal failure, TSR"
+            >
+              <Zap size={16} />
+              <span>⚡ Disruption</span>
+            </button>
+
+            <button
+              className="quiet-button"
+              onClick={() => setMaintenanceOpen(true)}
+              title="Plan hard maintenance block with candidate slot cost curve"
+            >
+              <Wrench size={16} />
+              <span>🔧 Maintenance</span>
+            </button>
+
+            <button
+              className="quiet-button"
               onClick={() => setImportOpen(true)}
               title="Import and analyse any timetable CSV sheet"
             >
               <FileSpreadsheet size={16} />
-              <span>+ Import &amp; Analyse</span>
+              <span>+ Import</span>
             </button>
 
             <button
@@ -528,6 +543,8 @@ export default function AppWithDashboards() {
               <AnalyticsDashboard />
             ) : view === 'simulation' ? (
               <SimulationDashboard />
+            ) : view === 'benchmarks' ? (
+              <BenchmarkDashboard />
             ) : (
               <App
                 activeSection={view}
@@ -575,6 +592,14 @@ export default function AppWithDashboards() {
           </button>
         </div>
         <div className="tools-grid">
+          <button className="quiet-button" onClick={() => { setTools(false); setDisruptionOpen(true); }}>
+            <Zap size={20} />
+            Inject disruption
+          </button>
+          <button className="quiet-button" onClick={() => { setTools(false); setMaintenanceOpen(true); }}>
+            <Wrench size={20} />
+            Maintenance planner
+          </button>
           <button className="quiet-button" onClick={() => { setTools(false); setImportOpen(true); }}>
             <FileSpreadsheet size={20} />
             Import &amp; Analyse
@@ -594,10 +619,6 @@ export default function AppWithDashboards() {
           <button className="quiet-button" onClick={openCenter}>
             <Maximize2 size={20} />
             Command center wall
-          </button>
-          <button className="quiet-button" onClick={() => { setTools(false); setChat(true); }}>
-            <Bot size={20} />
-            Assistant
           </button>
         </div>
 
@@ -733,17 +754,6 @@ export default function AppWithDashboards() {
         ))}
       </dialog>
 
-      {chat && (
-        <ChatBot
-          onClose={() => setChat(false)}
-          logsBefore={feed.logs}
-          logsAfter={feed.logs}
-          scheduleData={{ schedule: feed.schedule, delays_before_min: [], delays_after_min: [] }}
-          lastAction={null}
-          autoExplain={false}
-        />
-      )}
-
       {feed.lastActionSnapshot && (
         <div className="rail-undo" role="status">
           <FileText size={20} />
@@ -779,6 +789,8 @@ export default function AppWithDashboards() {
       <ImportAnalyseModal open={importOpen} onClose={() => setImportOpen(false)} />
       <FieldIncidentModal open={fieldIncidentOpen} onClose={() => setFieldIncidentOpen(false)} />
       <JudgeCheatSheetModal open={judgeCheatSheetOpen} onClose={() => setJudgeCheatSheetOpen(false)} />
+      <DisruptionInjectorModal open={disruptionOpen} onClose={() => setDisruptionOpen(false)} onInjected={() => void feed.refreshAll(true)} />
+      <MaintenancePlannerModal open={maintenanceOpen} onClose={() => setMaintenanceOpen(false)} onScheduled={() => void feed.refreshAll(true)} />
     </div>
   );
 }

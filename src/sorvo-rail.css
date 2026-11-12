@@ -1081,3 +1081,70 @@
   border-color: var(--sorvo-card-border) !important;
   color: var(--sorvo-text-title) !important;
 }
+
+
+/* ==========================================================================
+   LIVE RADAR CONSOLE (Tactical Cockpit Radar Protection)
+   Preserves dark luminous radar display in both Day & Night modes.
+   ========================================================================== */
+.live-radar-console,
+.rail-app .live-radar-console {
+  background-color: #070b10 !important;
+  color: #f1f5ef !important;
+  border-color: #1e293b !important;
+}
+
+.rail-app .live-radar-console header {
+  background-color: rgba(13, 20, 31, 0.95) !important;
+  border-color: rgba(30, 41, 59, 0.9) !important;
+}
+
+.rail-app .live-radar-console aside,
+.rail-app .live-radar-console aside[class*="bg-"] {
+  background-color: #0f1722 !important;
+  color: #f1f5ef !important;
+  border-color: #1e293b !important;
+}
+
+.rail-app .live-radar-console [class*="bg-[#0"] {
+  background-color: #070b10 !important;
+}
+
+.rail-app .live-radar-console [class*="bg-slate-900"] {
+  background-color: rgba(15, 23, 42, 0.9) !important;
+}
+
+.rail-app .live-radar-console [class*="bg-slate-800"] {
+  background-color: #1e293b !important;
+}
+
+.rail-app .live-radar-console [class*="border-slate-"] {
+  border-color: #334155 !important;
+}
+
+.rail-app .live-radar-console [class*="text-white"],
+.rail-app .live-radar-console .text-white,
+.rail-app .live-radar-console h3,
+.rail-app .live-radar-console h4 {
+  color: #ffffff !important;
+}
+
+.rail-app .live-radar-console [class*="text-slate-100"] {
+  color: #f1f5f9 !important;
+}
+
+.rail-app .live-radar-console [class*="text-slate-200"] {
+  color: #e2e8f0 !important;
+}
+
+.rail-app .live-radar-console [class*="text-slate-300"] {
+  color: #cbd5e1 !important;
+}
+
+.rail-app .live-radar-console [class*="text-slate-400"] {
+  color: #94a3b8 !important;
+}
+
+.rail-app .live-radar-console [class*="text-slate-500"] {
+  color: #64748b !important;
+}

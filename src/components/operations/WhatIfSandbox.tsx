@@ -1,190 +1,236 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, CheckCheck, Clock3, FlaskConical, Play, RotateCcw } from 'lucide-react';
-import { useOperationsFeed } from '../../context/OperationsFeedContext';
-import { findPlatformConflicts } from '../../lib/localSchedule';
-import { computeKPIs } from '../../lib/scheduleUtils';
-import { formatTime } from '../../lib/dateTimeUtils';
-import { PageHeader } from '../layout/PageHeader';
-interface DrillCase {
-  id: string;
-  title: string;
-  difficulty: 'Easy' | 'Medium' | 'Critical';
-  scenario: string;
-  timeLimitSeconds: number;
-  options: {
-    id: string;
-    text: string;
-    safetyScore: number;
-    delayImpactMin: number;
-    explanation: string;
-    isCorrect: boolean;
-  }[];
+import { useState } from 'react';
+import { Check, Cpu, FlaskConical, Zap } from 'lucide-react';
+import { Button } from '../ui/Button';
+import { evaluateWhatIf, commitWhatIf, type DisruptionPayload, type OverridePayload } from '../../lib/operationsApi';
+import { notify } from '../../lib/notify';
+
+interface WhatIfSandboxProps {
+  onPlanCommitted?: () => void;
 }
 
-const TRAINING_DRILLS: DrillCase[] = [
-  {
-    id: 'drill-1',
-    title: 'Drill 1: Sudden Track Circuit Drop at SC North Throat',
-    difficulty: 'Critical',
-    scenario:
-      'Train T104 (Charminar Express) is approaching Secunderabad at 65 km/h. Track circuit TC-SC-04 drops suddenly, indicating potential rail fracture. Rake is 3 minutes from Home Signal.',
-    timeLimitSeconds: 45,
-    options: [
-      {
-        id: 'opt-a',
-        text: 'Immediately impose emergency signal clamp and divert T104 to Platform 3 loop',
-        safetyScore: 98,
-        delayImpactMin: 0,
-        explanation: 'Safest action. Avoids suspected rail failure and utilizes idle Platform 3 with zero delay.',
-        isCorrect: true,
-      },
-      {
-        id: 'opt-b',
-        text: 'Hold T104 at Outer Home signal for 15 minutes awaiting line clear verification',
-        safetyScore: 88,
-        delayImpactMin: 15,
-        explanation: 'Safe but creates an acute delay cascade across the northern corridor.',
-        isCorrect: false,
-      },
-      {
-        id: 'opt-c',
-        text: 'Authorize pilot caution passage at 15 km/h over the dropped circuit',
-        safetyScore: 45,
-        delayImpactMin: 6,
-        explanation: 'Violates Kavach fail-safe protocols without prior engineering clearance.',
-        isCorrect: false,
-      },
-    ],
-  },
-  {
-    id: 'drill-2',
-    title: 'Drill 2: Suburban EMU Overtake Priority Regulation',
-    difficulty: 'Medium',
-    scenario:
-      'Express rake T101 is trailing slow passenger rake T107 by 4 minutes on the SC-KCG double line. Both trains are scheduled for Kacheguda.',
-    timeLimitSeconds: 60,
-    options: [
-      {
-        id: 'opt-a',
-        text: 'Loop T107 into Sitafalmandi bypass loop line; signal clear run for T101 Express',
-        safetyScore: 95,
-        delayImpactMin: 2,
-        explanation: 'Standard OCC dispatch protocol. Express maintains punctuality; commuter delay absorbed.',
-        isCorrect: true,
-      },
-      {
-        id: 'opt-b',
-        text: 'Enforce 40 km/h trailing speed on T101 Express behind T107',
-        safetyScore: 78,
-        delayImpactMin: 12,
-        explanation: 'Severe punctuality penalty on high-priority interstate express.',
-        isCorrect: false,
-      },
-    ],
-  },
-];
+export function WhatIfSandbox({ onPlanCommitted }: WhatIfSandboxProps) {
+  const [disruptionType, setDisruptionType] = useState<'late_train' | 'loco_failure' | 'signal_failure' | 'speed_restriction'>('late_train');
+  const [selectedTrain, setSelectedTrain] = useState('T101');
+  const [durationMin, setDurationMin] = useState(15);
+  const [selectedBlock, setSelectedBlock] = useState('BMO_MED');
 
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<any | null>(null);
+  const [committed, setCommitted] = useState(false);
 
-export function WhatIfSandbox() {
-  const { schedule, trains, stations, logs } = useOperationsFeed();
-  const [tab, setTab] = useState<'plan' | 'replay' | 'training'>('plan');
-  const [preset, setPreset] = useState('baseline');
-  const [speed, setSpeed] = useState(100);
-  const [buffer, setBuffer] = useState(5);
-  const [weather, setWeather] = useState(0);
-  const [block, setBlock] = useState(false);
-  const [offset, setOffset] = useState(60);
-  const [playing, setPlaying] = useState(false);
-  const [drill, setDrill] = useState(0);
-  const [answer, setAnswer] = useState<string | null>(null);
-  const [submitted, setSubmitted] = useState(false);
-  const [anchor] = useState(() => Date.now());
+  const handleEvaluate = async () => {
+    setLoading(true);
+    setCommitted(false);
+    try {
+      const payload: { disruption?: DisruptionPayload; override?: OverridePayload } = {};
 
-  useEffect(() => {
-    if (!playing) return;
-    const timer = setInterval(() => setOffset(n => {
-      if (n >= 60) { setPlaying(false); return 60; }
-      return n + 1;
-    }), 700);
-    return () => clearInterval(timer);
-  }, [playing]);
-
-  const result = useMemo(() => {
-    const weatherDelay = weather;
-    const estimate = schedule.map(entry => {
-      const minutesAhead = Math.max(0, (Date.parse(entry.actual_arrival) - anchor) / 60000);
-      const added = Math.round(minutesAhead * (100 / speed - 1) + (minutesAhead ? weatherDelay : 0));
-      return { ...entry, actual_arrival: new Date(Date.parse(entry.actual_arrival) + added * 60000).toISOString(), actual_departure: new Date(Date.parse(entry.actual_departure) + added * 60000).toISOString() };
-    });
-    if (block) {
-      for (let index = 0; index < estimate.length; index++) {
-        const entry = estimate[index];
-        if (entry.station_id !== 'SC' || entry.assigned_platform !== 1 || Date.parse(entry.actual_departure) < anchor) continue;
-        const count = stations.find(s => s.id === 'SC')?.platforms ?? 1;
-        for (let platform = 2; platform <= count; platform++) {
-          const candidate = estimate.map((item,i) => i === index ? { ...item, assigned_platform: platform } : item);
-          if (!findPlatformConflicts(candidate, buffer).some(c => c.trains_involved?.includes(entry.train_id) && c.station_id === entry.station_id)) {
-            estimate[index] = candidate[index];
-            break;
-          }
-        }
+      if (disruptionType === 'late_train') {
+        payload.disruption = {
+          disruption_type: 'late_train',
+          train_id: selectedTrain,
+          duration_minutes: durationMin,
+        };
+      } else if (disruptionType === 'loco_failure') {
+        payload.disruption = {
+          disruption_type: 'loco_failure',
+          train_id: selectedTrain,
+          block_id: selectedBlock,
+          duration_minutes: durationMin,
+        };
+      } else if (disruptionType === 'signal_failure') {
+        payload.disruption = {
+          disruption_type: 'signal_failure',
+          block_id: selectedBlock,
+          duration_minutes: durationMin,
+          speed_restriction_kmh: 25.0,
+          additional_headway_sec: 300,
+        };
+      } else {
+        payload.disruption = {
+          disruption_type: 'speed_restriction',
+          block_id: selectedBlock,
+          duration_minutes: durationMin,
+          speed_restriction_kmh: 30.0,
+        };
       }
+
+      const res = await evaluateWhatIf(payload);
+      setResult(res);
+      notify.info('What-If Scenario Evaluated', res.summary);
+    } catch (err: any) {
+      notify.error('Evaluation failed', err.message);
+    } finally {
+      setLoading(false);
     }
-    return {
-      entries: estimate,
-      issues: findPlatformConflicts(estimate, buffer),
-      kpis: computeKPIs(estimate, trains),
-      changes: estimate.filter((entry,i) => entry.assigned_platform !== schedule[i].assigned_platform || entry.actual_arrival !== schedule[i].actual_arrival),
-      blocked: block ? estimate.filter(e => e.station_id === 'SC' && e.assigned_platform === 1 && Date.parse(e.actual_departure) >= anchor).length : 0,
-    };
-  }, [schedule, speed, weather, block, buffer, stations, trains, anchor]);
-  const baseline = computeKPIs(schedule, trains);
-  const task = TRAINING_DRILLS[drill];
-  const chosen = task.options.find(o => o.id === answer);
-  const cutoff = anchor - (60 - offset) * 60000;
-  const history = [...logs].filter(log => Date.parse(log.timestamp) <= cutoff).sort((a,b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  };
 
-  function choosePreset(id: string) {
-    setPreset(id);
-    setSpeed(id === 'rain' ? 75 : 100);
-    setWeather(id === 'rain' ? 4 : 0);
-    setBuffer(id === 'rain' ? 7 : 5);
-    setBlock(id === 'closure');
-  }
+  const handleCommit = async () => {
+    try {
+      await commitWhatIf();
+      setCommitted(true);
+      notify.success('Scenario Committed to Live Plan', 'The dispatch schedule and recommendations have been updated.');
+      if (onPlanCommitted) onPlanCommitted();
+    } catch (err: any) {
+      notify.error('Commit failed', err.message);
+    }
+  };
 
-  return <div className="sandbox-page">
-    <PageHeader title="What-if sandbox" subtitle="Explore a disruption, inspect its impact and rehearse a dispatch decision."/>
-    <div className="sandbox-tabs" aria-label="Sandbox views">
-      {([['plan','Scenario planner'],['replay','Activity replay'],['training','Training exercises']] as const).map(([id,label]) => <button key={id} aria-pressed={tab === id} onClick={() => {setTab(id);setPlaying(false);}}>{label}</button>)}
-    </div>
-    {tab === 'plan' && <div className="sandbox-grid">
-      <section className="workspace-panel"><div className="panel-head"><div className="panel-title"><FlaskConical size={18}/><h2>Build a scenario</h2></div></div><div className="sandbox-controls">
-        <label>Starting point<select value={preset} onChange={e => choosePreset(e.target.value)}><option value="baseline">Current corridor</option><option value="rain">Monsoon slowdown</option><option value="closure">SC platform 1 closure</option></select></label>
-        <label htmlFor="scenario-speed">Corridor speed <strong>{speed}%</strong></label><input id="scenario-speed" type="range" min="50" max="100" step="5" value={speed} onChange={e => setSpeed(Number(e.target.value))}/>
-        <label htmlFor="scenario-buffer">Platform headway <strong>{buffer} min</strong></label><input id="scenario-buffer" type="range" min="3" max="10" value={buffer} onChange={e => setBuffer(Number(e.target.value))}/>
-        <label>Weather allowance<select value={weather} onChange={e => setWeather(Number(e.target.value))}><option value="0">Clear · 0 min</option><option value="2">Moderate rain · +2 min</option><option value="4">Heavy rain · +4 min</option></select></label>
-        <label className="closure-toggle"><input type="checkbox" checked={block} onChange={e => setBlock(e.target.checked)}/>Close Secunderabad platform 1</label>
-        <button className="quiet-button" onClick={() => choosePreset('baseline')}><RotateCcw size={14}/>Reset scenario</button>
-      </div></section>
-      <section className="workspace-panel"><div className="panel-head"><div className="panel-title"><h2>Projected timetable</h2></div><span className="rail-feed">Scenario preview</span></div><div className="scenario-result">
-        <div className="scenario-metrics">
-          <div><span>On-time trains</span><strong>{result.kpis.ontimePct}%</strong><small>Current {baseline.ontimePct}%</small></div>
-          <div><span>Delay per train</span><strong>{result.kpis.avgDelay}<em>min</em></strong><small>Current {baseline.avgDelay} min</small></div>
-          <div><span>Booking conflicts</span><strong className={result.issues.length ? 'ink-coral' : 'ink-mint'}>{result.issues.length}</strong><small>{result.changes.length} stops changed</small></div>
+  const handleDiscard = () => {
+    setResult(null);
+    setCommitted(false);
+    notify.info('What-If Scenario Discarded', 'Live dispatch schedule remains unchanged.');
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-[#344039] bg-[#1a231f] p-5 shadow-sm">
+        <div className="flex items-center justify-between border-b border-[#344039] pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#9ac4fb]/10 text-[#9ac4fb]">
+              <FlaskConical className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold text-white">What-If Dispatch Sandbox</h2>
+              <p className="text-xs text-[#acb9b0]">
+                Test hypothetical disruptions and dispatch decisions in an isolated sandbox. The live plan is untouched until you commit.
+              </p>
+            </div>
+          </div>
+          <span className="rounded border border-[#9ac4fb]/30 bg-[#9ac4fb]/10 px-2.5 py-1 text-xs font-mono text-[#9ac4fb]">
+            SANDBOX ISOLATED
+          </span>
         </div>
-        {result.blocked > 0 && <p className="scenario-caution">{result.blocked} bookings still need a platform after closure. Inspect the schedule before dispatch.</p>}
-        <h3>How this preview is calculated</h3><p>Future arrival offsets scale with the selected speed. The weather allowance is added to future stops. Platform bookings are checked against the selected headway. A closure tries available platforms in order.</p>
-        <div className="scenario-change-list">{result.changes.slice(0,8).map(entry => {
-          const original = schedule.find(s => s.train_id === entry.train_id && s.station_id === entry.station_id);
-          return <div key={entry.train_id + entry.station_id}><strong>{entry.train_id}<small>{entry.station_id}</small></strong><span>{formatTime(original?.actual_arrival)} · P{original?.assigned_platform}</span><ArrowRight size={13}/><span>{formatTime(entry.actual_arrival)} · P{entry.assigned_platform}</span></div>;
-        })}</div>
-        {!result.changes.length && <div className="scenario-neutral"><CheckCheck size={18}/>This preview matches the current timetable.</div>}
-        {result.changes.length > 8 && <p className="scenario-more">{result.changes.length - 8} more stops affected.</p>}
-        <button className="review-button" onClick={() => { window.location.hash = 'conflicts'; }}>Open dispatch queue<ArrowRight size={15}/></button>
-      </div></section>
-    </div>}
-    {tab === 'replay' && <section className="workspace-panel"><div className="panel-head"><div className="panel-title"><Clock3 size={18}/><h2>Session event replay</h2></div><span>{formatTime(cutoff)} IST</span></div><div className="replay-controls"><button className="quiet-button" onClick={() => { if(offset >= 60) setOffset(0);setPlaying(!playing); }}><Play size={14}/>{playing ? 'Pause' : 'Play'}</button><label htmlFor="replay-time">Last 60 minutes</label><input id="replay-time" type="range" min="0" max="60" value={offset} onChange={e => {setOffset(Number(e.target.value));setPlaying(false);}}/></div><ol className="replay-events">{history.map((log,i) => <li key={i}><time>{formatTime(log.timestamp)}</time><div><strong>{log.action}</strong><p>{log.details}</p></div></li>)}</ol>{!history.length && <p className="panel-empty">No recorded events before this time.</p>}</section>}
-    {tab === 'training' && <section className="workspace-panel"><div className="panel-head"><div className="panel-title"><h2>Dispatch practice</h2></div><span className="rail-feed">Illustrative exercise</span></div><div className="training-content"><label>Exercise<select value={drill} onChange={e => {setDrill(Number(e.target.value));setAnswer(null);setSubmitted(false);}}>{TRAINING_DRILLS.map((d,i) => <option key={d.id} value={i}>{d.title}</option>)}</select></label><h3>{task.title.replace(/^Drill \d+: /,'')}</h3><p>{task.scenario}</p><fieldset className="decision-options" disabled={submitted}><legend>Choose a response</legend>{task.options.map(option => <label key={option.id} className={answer === option.id ? 'chosen' : ''}><input type="radio" name="exercise-answer" checked={answer === option.id} onChange={() => setAnswer(option.id)}/><span>{option.text}</span></label>)}</fieldset>{submitted && chosen && <p className="training-feedback"><strong>{chosen.isCorrect ? 'Recommended response' : 'Review this response'}</strong>{chosen.explanation}</p>}<button className="review-button" disabled={!answer} onClick={() => submitted ? (setAnswer(null),setSubmitted(false)) : setSubmitted(true)}>{submitted ? 'Try again' : 'Check response'}</button></div></section>}
-  </div>;
-}
 
+        {/* CONTROLS */}
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label className="block text-xs font-medium text-[#acb9b0] mb-1.5">Disruption Type</label>
+            <select
+              className="w-full rounded border border-[#344039] bg-[#111816] px-3 py-2 text-xs text-white"
+              value={disruptionType}
+              onChange={(e: any) => setDisruptionType(e.target.value)}
+            >
+              <option value="late_train">Late Priority Train Entry</option>
+              <option value="loco_failure">Locomotive Failure on Track</option>
+              <option value="signal_failure">Signal Failure / Caution</option>
+              <option value="speed_restriction">Temporary Speed Restriction (TSR)</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[#acb9b0] mb-1.5">Target Train / Track</label>
+            {disruptionType === 'late_train' || disruptionType === 'loco_failure' ? (
+              <select
+                className="w-full rounded border border-[#344039] bg-[#111816] px-3 py-2 text-xs text-white"
+                value={selectedTrain}
+                onChange={(e) => setSelectedTrain(e.target.value)}
+              >
+                <option value="T101">T101 (Express 12001 - Weight 3.0)</option>
+                <option value="T102">T102 (Local Suburban - Weight 2.0)</option>
+                <option value="T103">T103 (Passenger - Weight 1.5)</option>
+                <option value="T104">T104 (Express Charminar - Weight 3.0)</option>
+              </select>
+            ) : (
+              <select
+                className="w-full rounded border border-[#344039] bg-[#111816] px-3 py-2 text-xs text-white"
+                value={selectedBlock}
+                onChange={(e) => setSelectedBlock(e.target.value)}
+              >
+                <option value="BMO_MED">BMO_MED (Single Track 13.8km)</option>
+                <option value="MED_MOB">MED_MOB (Single Track 14.5km)</option>
+                <option value="SC_MJF">SC_MJF (Double Track 6.5km)</option>
+              </select>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[#acb9b0] mb-1.5">Duration (Minutes)</label>
+            <input
+              type="number"
+              min="5"
+              max="120"
+              step="5"
+              className="w-full rounded border border-[#344039] bg-[#111816] px-3 py-2 text-xs text-white font-mono"
+              value={durationMin}
+              onChange={(e) => setDurationMin(Number(e.target.value))}
+            />
+          </div>
+
+          <div className="flex items-end">
+            <Button
+              className="w-full bg-[#9ac4fb] hover:bg-[#85b5f2] text-black font-semibold text-xs h-9"
+              onClick={handleEvaluate}
+              disabled={loading}
+            >
+              <Cpu className="h-4 w-4 mr-1.5" />
+              {loading ? 'Solving (CP-SAT)...' : 'Evaluate What-If'}
+            </Button>
+          </div>
+        </div>
+
+        {/* COMPARISON RESULTS */}
+        {result && (
+          <div className="mt-6 rounded-lg border border-[#344039] bg-[#111816] p-4">
+            <div className="flex items-center justify-between border-b border-[#344039] pb-3 mb-4">
+              <span className="font-semibold text-sm text-white">CP-SAT Sandbox Evaluation Results</span>
+              <span className="flex items-center gap-1.5 font-mono text-xs text-[#9ac4fb]">
+                <Zap className="h-3.5 w-3.5" />
+                Solved in {result.solve_time_ms} ms
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="rounded border border-[#344039] bg-[#1a231f] p-3">
+                <span className="text-xs text-[#acb9b0]">Current Live Plan</span>
+                <div className="mt-1 text-xl font-bold font-mono text-white">
+                  {result.current_weighted_delay_min.toFixed(1)}m
+                </div>
+                <span className="text-[11px] text-[#acb9b0]">total weighted delay</span>
+              </div>
+
+              <div className="rounded border border-[#344039] bg-[#1a231f] p-3">
+                <span className="text-xs text-[#acb9b0]">What-If Sandbox Plan</span>
+                <div className="mt-1 text-xl font-bold font-mono text-[#f2c278]">
+                  {result.hypothetical_weighted_delay_min.toFixed(1)}m
+                </div>
+                <span className="text-[11px] text-[#acb9b0]">with mitigation applied</span>
+              </div>
+
+              <div className="rounded border border-[#344039] bg-[#1a231f] p-3">
+                <span className="text-xs text-[#acb9b0]">Predicted Delay Impact</span>
+                <div className={`mt-1 text-xl font-bold font-mono ${result.delta_weighted_delay_min > 0 ? 'text-[#ffab9e]' : 'text-[#9be7be]'}`}>
+                  {result.delta_weighted_delay_min > 0 ? `+${result.delta_weighted_delay_min.toFixed(1)}m` : `${result.delta_weighted_delay_min.toFixed(1)}m`}
+                </div>
+                <span className="text-[11px] text-[#acb9b0]">
+                  Affects {result.affected_trains_count} downstream trains
+                </span>
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-[#acb9b0]">
+              {result.summary}
+            </p>
+
+            <div className="mt-4 flex items-center justify-end gap-3 pt-3 border-t border-[#344039]">
+              <Button
+                variant="outline"
+                className="border-[#344039] text-[#acb9b0] hover:bg-[#344039] text-xs"
+                onClick={handleDiscard}
+              >
+                Discard Scenario
+              </Button>
+              <Button
+                className="bg-[#9be7be] hover:bg-[#85d4ab] text-black font-semibold text-xs"
+                onClick={handleCommit}
+                disabled={committed}
+              >
+                <Check className="h-4 w-4 mr-1.5" />
+                {committed ? 'Committed to Live Plan' : 'Commit to Live Operations'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

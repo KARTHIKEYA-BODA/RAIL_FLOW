@@ -415,195 +415,27 @@ def generate_throughput_optimizations(schedule):
     return rank_by_throughput_impact(opportunities)
 ```
 
-#### 4.3 Proactive Efficiency Recommendations
-**Algorithm**: Predictive analysis for future optimization
-```python
-def generate_proactive_recommendations(schedule):
-    # Analyze historical patterns
-    patterns = analyze_historical_data(schedule)
-    
-    # Predict future bottlenecks
-    bottlenecks = predict_future_conflicts(patterns, schedule)
-    
-    # Generate preventive recommendations
-    preventive_actions = []
-    for bottleneck in bottlenecks:
-        prevention_strategies = generate_prevention_strategies(bottleneck)
-        preventive_actions.extend(prevention_strategies)
-    
-    return rank_by_prevention_value(preventive_actions)
-```
+### 5. Section Dispatch Optimization Engine (Google OR-Tools CP-SAT)
 
-**Multi-Criteria Scoring System**:
-```python
-def score_recommendation(recommendation):
-    # Throughput impact (40% weight)
-    throughput_score = calculate_throughput_improvement(recommendation)
-    
-    # Delay reduction (30% weight)  
-    delay_score = calculate_delay_reduction(recommendation)
-    
-    # Implementation complexity (20% weight)
-    complexity_score = assess_implementation_difficulty(recommendation)
-    
-    # Risk assessment (10% weight)
-    risk_score = evaluate_implementation_risk(recommendation)
-    
-    # Weighted composite score
-    final_score = (
-        0.4 * throughput_score +
-        0.3 * delay_score + 
-        0.2 * (1 - complexity_score) +  # Lower complexity = higher score
-        0.1 * (1 - risk_score)         # Lower risk = higher score
-    )
-    
-    return final_score
-```
+**Location**: `backend/cpsat_solver.py`
 
-**Recommendation Categories**:
-1. **Immediate Actions**: Real-time conflict resolution (response time: <30s)
-2. **Short-term Optimizations**: Schedule adjustments for next hour (response time: <5min)
-3. **Strategic Improvements**: Long-term throughput enhancements (response time: <1hr)
-4. **Preventive Measures**: Proactive bottleneck prevention (response time: <24hr)
+Railway Brain solves the section scheduling and disruption recovery problem by formulating it as a Constraint Programming with Satisfiability (CP-SAT) optimization problem. For the full mathematical specification, see [FORMULATION.md](./FORMULATION.md).
 
-## Railway Throughput Optimization Algorithms
+#### Core Optimization Objectives:
+1. **Total Weighted Delay Minimization**: Minimizes priority-weighted arrival delays across all trains and stations:
+   $$\min \sum_{i \in \mathcal{T}} w_i \cdot \max(0, \text{actual\_arrival}_i - \text{scheduled\_arrival}_i)$$
+   where Express ($w=3.0$), Suburban ($w=2.0$), Passenger ($w=1.5$), and Freight ($w=1.0$).
+2. **Hard Safety Non-Overlap**: Prevents opposing train deadlocks on single-track sections using native `NoOverlap` interval constraints.
+3. **Kavach Headway Separation**: Enforces minimum safety headway buffers (180s standard / 300s Kavach) between same-direction trains on double track.
+4. **Maintenance Interval Exclusion**: Enforces maintenance blocks as hard, non-relaxable intervals.
 
-### 5. Throughput Maximization Engine
+#### 5.1 Counterfactual Explanation Engine
+**Location**: `backend/counterfactual.py`
 
-**Purpose**: Optimize railway network capacity and train-per-hour ratios across all stations
-
-#### 5.1 Platform Utilization Optimization
-**Algorithm**: Dynamic load balancing with capacity constraints
-```python
-def optimize_platform_utilization(stations, schedule):
-    for station in stations:
-        # Calculate current utilization per platform
-        utilization = calculate_platform_utilization(station, schedule)
-        
-        # Identify overloaded and underutilized platforms
-        overloaded = [p for p, util in utilization.items() if util > 0.85]
-        underutilized = [p for p, util in utilization.items() if util < 0.60]
-        
-        # Rebalance load using Hungarian algorithm
-        optimal_assignment = hungarian_algorithm(
-            trains=get_station_trains(station),
-            platforms=station.platforms,
-            cost_matrix=calculate_assignment_costs(station)
-        )
-        
-        return generate_rebalancing_recommendations(optimal_assignment)
-```
-
-**Throughput Metrics**:
-- **Trains per Hour per Platform (TPHP)**: Target 6-8 trains/hour/platform
-- **Platform Utilization Rate**: Target 75-85% (safety margin included)
-- **Dwell Time Optimization**: Minimize average dwell time while maintaining safety
-- **Headway Efficiency**: Maximize train frequency within safety constraints
-
-#### 5.2 Network Flow Optimization
-**Algorithm**: Multi-commodity flow optimization for railway networks
-```python
-def optimize_network_flow(railway_network, train_demands):
-    # Model railway network as directed graph
-    G = create_network_graph(stations, tracks, capacities)
-    
-    # Define flow variables for each train route
-    flows = {}
-    for train in trains:
-        route = find_shortest_path(train.origin, train.destination, G)
-        flows[train.id] = create_flow_variables(route, train.schedule)
-    
-    # Objective: maximize total network throughput
-    objective = maximize(sum(flows[t].volume for t in trains))
-    
-    # Constraints:
-    # 1. Track capacity constraints
-    for track in railway_network.tracks:
-        constraint: sum(flows using track) <= track.capacity
-    
-    # 2. Station platform constraints  
-    for station in railway_network.stations:
-        constraint: concurrent_trains <= station.platforms
-    
-    # 3. Safety headway constraints
-    for consecutive_trains on same_track:
-        constraint: time_gap >= MIN_HEADWAY
-    
-    return solve_network_flow_optimization(objective, constraints)
-```
-
-#### 5.3 Temporal Optimization Algorithm
-**Algorithm**: Time-space network optimization for maximum throughput
-```python
-def optimize_temporal_distribution(schedule, time_horizon):
-    # Create time-space network
-    time_slots = discretize_time_horizon(time_horizon, slot_duration=5)  # 5-min slots
-    
-    # Decision variables: x[train, station, platform, time_slot]
-    x = create_assignment_variables(trains, stations, platforms, time_slots)
-    
-    # Objective: maximize throughput while minimizing delays
-    throughput_term = sum(x[t,s,p,τ] for all valid assignments)
-    delay_penalty = sum(delay_cost(t,τ) * x[t,s,p,τ] for all assignments)
-    
-    objective = maximize(α * throughput_term - β * delay_penalty)
-    
-    # Throughput-specific constraints:
-    # 1. Maximize platform occupancy (but not exceed capacity)
-    for s, p, τ in (stations, platforms, time_slots):
-        0.6 <= sum(x[t,s,p,τ] for t in trains) <= 1.0
-    
-    # 2. Minimize idle time between trains
-    for s, p in (stations, platforms):
-        minimize_gaps_between_assignments(x, s, p)
-    
-    # 3. Balance load across platforms
-    for s in stations:
-        balance_platform_utilization(x, s)
-    
-    return solve_temporal_optimization(objective, constraints)
-```
-
-#### 5.4 Adaptive Throughput Control
-**Algorithm**: Real-time throughput adjustment based on system state
-```python
-class AdaptiveThroughputController:
-    def __init__(self):
-        self.target_throughput = 6.5  # trains/hour/platform
-        self.utilization_threshold = 0.80
-        self.adaptation_rate = 0.1
-    
-    def adjust_throughput_parameters(self, current_metrics):
-        # Monitor current system performance
-        current_throughput = current_metrics['trains_per_hour']
-        current_utilization = current_metrics['platform_utilization']
-        conflict_rate = current_metrics['conflicts_per_hour']
-        
-        # Adaptive control algorithm
-        if current_utilization > self.utilization_threshold:
-            # System approaching capacity - reduce acceptance rate
-            self.target_throughput *= (1 - self.adaptation_rate)
-            increase_headway_requirements()
-            
-        elif conflict_rate > acceptable_conflict_rate:
-            # Too many conflicts - prioritize safety over throughput
-            self.target_throughput *= (1 - 2 * self.adaptation_rate)
-            implement_conservative_scheduling()
-            
-        elif current_throughput < self.target_throughput * 0.9:
-            # Underutilized system - increase throughput
-            self.target_throughput *= (1 + self.adaptation_rate)
-            optimize_for_higher_capacity()
-        
-        return self.generate_throughput_adjustments()
-```
-
-**Throughput Optimization Objectives**:
-1. **Capacity Maximization**: Achieve maximum sustainable train frequency
-2. **Resource Efficiency**: Optimal utilization of platforms and tracks  
-3. **Delay Minimization**: Reduce total system delays while maximizing throughput
-4. **Robustness**: Maintain performance under disruptions and variations
-5. **Scalability**: Handle increasing train volumes without performance degradation
+Every recommendation is paired with an exact arithmetic counterfactual calculation comparing the solver's proposed plan against the baseline continuation:
+- **Downstream Benefit**: Explicitly lists trains benefiting from the hold/precedence decision and the exact weighted minutes saved.
+- **Rejection Impact**: Quantifies the additional cascade delay if the controller rejects the recommendation.
+- **Zero Hallucination**: No generative LLM is used in the decision path; all numbers are calculated directly from simulation state.
 
 ## Data Models
 
@@ -674,43 +506,41 @@ The system uses a realistic Hyderabad railway network dataset:
 
 ### Core Operations
 ```
-GET  /health                    # Service health and Redis status
-GET  /trains                    # Get all trains
-GET  /schedule                  # Get optimized schedule with conflicts
-POST /override                  # Apply manual override
-GET  /stations                  # Get station information
-GET  /log                       # Get audit logs
+GET  /health                    # In-memory single-process service health
+GET  /stations                  # Get corridor stations & topologies
+GET  /trains                    # Get all monitored trains
+GET  /schedule                  # Get current conflict-free schedule
+POST /schedule/recompute        # Trigger CP-SAT re-plan with rolling horizon
+POST /override                  # Apply controller manual platform/time override
+POST /feasibility              # Verify proposed action against safety rules
+GET  /conflicts                # Get active safety and headway conflicts
+GET  /recommendations          # Get counterfactual numeric recommendations
+POST /apply-recommendation     # Accept and commit specific recommendation
+POST /recommendations/reject   # Reject recommendation and record controller reason
+GET  /log                       # Get append-only audit trail
 ```
 
-### Advanced Features
+### Disruption & Maintenance Operations
 ```
-POST /feasibility              # Check override feasibility
-GET  /conflicts                # Get current conflicts
-GET  /recommendations          # Get AI recommendations
-POST /apply-recommendation     # Apply specific recommendation
-```
-
-### Simulation & Analytics
-```
-POST /simulate/delay           # Simulate delay scenario
-POST /simulate/breakdown       # Simulate breakdown scenario
-POST /simulate/weather         # Simulate weather impact
-POST /simulate/priority        # Simulate priority changes
-GET  /scenarios               # Get simulation history
-GET  /analytics/summary       # Get comprehensive analytics
+POST /disruptions/inject       # Unified disruption injector (late train, loco, signal, TSR)
+POST /disruptions/clear        # Clear active disruption orders
+POST /maintenance/plan         # Evaluate maintenance placement slot & cost curve
+POST /whatif/evaluate          # Evaluate hypothetical scenario in sandbox
+POST /whatif/commit            # Promote sandbox scenario to live schedule
 ```
 
-### Real-time Features
+### Benchmarks & Stretch Deliverables
 ```
-WebSocket /ws                  # Real-time train positions
-GET  /train-positions         # Current train positions
-GET  /track-status           # Track occupancy and conflicts
+GET  /benchmark/results        # 24-hr comparative benchmark: FCFS vs Priority vs CP-SAT
+GET  /stretch/forecast         # Arrival-time forecasting model MAE & predictions
+GET  /stretch/override-learning# Controller override history & learned class weights
 ```
 
-### AI Integration
+### Real-time Telemetry
 ```
-POST /ai/analyze-schedule     # AI-powered schedule analysis
-GET  /ai/status              # Check Gemini AI configuration
+WebSocket /ws                  # Real-time WebSocket event & position push stream
+GET  /train-positions         # Current train corridor mileposts & track circuits
+GET  /track-status           # Track circuit occupancy telemetry
 ```
 
 ## Frontend Components
@@ -759,9 +589,9 @@ GET  /ai/status              # Check Gemini AI configuration
 - `analytics_trends.py` buckets snapshots to 5-minute intervals
 - Expanded pytest: override, feasibility, simulation; CI uses `requirements-dev.txt` (no optional Gemini dep)
 
-### Production Real-time (optional Redis)
+### Real-Time Dispatch State & WebSocket Streaming
 
-Gunicorn multi-worker deployments use `backend/redis_bus.py` for pub/sub. Schedule mutations call `notify_realtime_clients()`; WebSocket clients receive `schedule_update` events. Set `REDIS_URL` in production; `GET /health` reports Redis status.
+Railway Brain runs a single-process FastAPI application with an in-memory schedule state. Schedule mutations trigger broadcast notifications via native WebSocket connections, updating all connected controller screens with sub-second latency without the overhead of external message brokers.
 
 ### 1. Multi-Dashboard Architecture
 
@@ -1058,20 +888,18 @@ npm run e2e
 
 ### Performance Optimization
 
-#### Backend Optimizations
-- **Caching**: Redis for schedule caching
-- **Database**: PostgreSQL for persistent data
-- **Async Processing**: Celery for background tasks
-- **Load Balancing**: Multiple worker processes
+#### Backend Architecture
+- **In-Memory State**: Single-worker FastAPI process maintaining a synchronized schedule state without distributed race conditions.
+- **OR-Tools CP-SAT**: High-performance mathematical optimization core solving within 3.5s.
+- **WebSocket Streaming**: Instant push delivery of solver re-plans and train positions directly to OCC clients.
 
-#### Frontend Optimizations
-- **Code Splitting**: Route-based lazy loading
-- **Memoization**: React.memo for expensive components
-- **Virtual Scrolling**: For large data tables
-- **WebSocket Optimization**: Efficient real-time updates
+#### Frontend Architecture
+- **Code Splitting**: Route-based lazy loading for heavy dashboards.
+- **Memoization**: React.memo and useMemo for real-time Marey stringline calculations.
+- **Pure CSS Layout**: Ergonomic dark palette reducing ocular fatigue during extended shifts.
 
 ---
 
-**TrainVision AI** - Intelligent Railway Traffic Management System
+**Railway Brain (PS-09)** — Disruption-Resilient Train Control Decision Support
 **Version**: 1.0.0
 **Last Updated**: October 2025

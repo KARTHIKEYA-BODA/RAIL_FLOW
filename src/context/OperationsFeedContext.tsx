@@ -1,3 +1,4 @@
+import { delaysFromSchedule, positionsFromSchedule, stationsForSchedule } from '../lib/feedDerivations';
 import { usePreferences } from './WorkspacePreferences';
 import { createDemo, detectIssues, scenarioRecommendations, type DemoKind } from '../lib/demoScenarios';
 import { changeSchedule } from '../lib/localSchedule';
@@ -33,7 +34,6 @@ import {
   MOCK_TRACK_STATUS,
   createMockSchedule,
   createMockBaseline,
-  getSimulatedTrainPositions,
 } from "../lib/mockRailwayData";
 
 export type FeedKey =
@@ -61,7 +61,6 @@ export interface ScheduleResponse {
   conflicts?: ConflictsResponse["conflicts"];
 }
 
-const POLL_MS = 5000;
 const STALE_MS = 15000;
 const FETCH_TIMEOUT_MS = 3500;
 
@@ -104,6 +103,7 @@ export interface OperationsFeedState {
   loadDemoScenario: (kind: DemoKind) => void;
   trains: Train[];
   schedule: ScheduleEntry[];
+  actionBaselineSchedule: ScheduleEntry[];
   baselineSchedule: ScheduleEntry[];
   previousSchedule: ScheduleEntry[];
   stations: Station[];
@@ -196,13 +196,14 @@ export function OperationsFeedProvider({
   const [baselineSchedule, setBaselineSchedule] = useState<ScheduleEntry[]>(
     () => createMockBaseline(),
   );
+  const [actionBaselineSchedule,setActionBaselineSchedule] = useState<ScheduleEntry[]>([]);
   const [previousSchedule, setPreviousSchedule] = useState<ScheduleEntry[]>([]);
   const [stations, setStations] = useState<Station[]>(MOCK_STATIONS);
   const [logs, setLogs] = useState<LogEntry[]>(MOCK_LOGS);
   const [activeDelays, setActiveDelays] =
     useState<ActiveDelay[]>(MOCK_ACTIVE_DELAYS);
   const [trainPositions, setTrainPositions] = useState<TrainPosition[]>(() =>
-    getSimulatedTrainPositions(),
+    positionsFromSchedule(schedule),
   );
   const [conflicts, setConflicts] = useState<ConflictsResponse>(MOCK_CONFLICTS);
   const [trackStatus, setTrackStatus] = useState<TrackStatusResponse | null>(
@@ -245,13 +246,14 @@ export function OperationsFeedProvider({
   }, [operator, role, recordEvent]);
 
   const releaseConflict = useCallback((conflictId: string) => {
+    if(role==="viewer") return;
     recordEvent("Conflict released", conflictId);
     setClaimedConflicts((prev) => {
       const next = { ...prev };
       delete next[conflictId];
       return next;
     });
-  }, [recordEvent]);
+  }, [recordEvent,role]);
 
   const addAnnotation = useCallback((targetId: string, note: string, author = 'OCC Controller (Desk 4)') => {
     setAnnotations((prev) => [
@@ -300,6 +302,10 @@ export function OperationsFeedProvider({
   const scheduleRef = useRef(schedule);
   scheduleRef.current = schedule;
   const wsRef = useRef<WebSocket | null>(null);
+  const liveRef = useRef(false);
+  const localDatasetRef = useRef(false);
+  const generationRef = useRef(0);
+  const refreshingRef = useRef(false);
 
   const markUpdated = useCallback((key: FeedKey) => {
     setLastUpdated((prev) => ({ ...prev, [key]: new Date() }));
@@ -314,169 +320,50 @@ export function OperationsFeedProvider({
     [lastUpdated],
   );
 
-  const fetchTrains = useCallback(async () => {
-    const data = await safeFetchJson<Train[]>(`${getApiBase()}/trains`);
-    if (data && Array.isArray(data) && data.length > 0) {
-      setTrains(data);
-      setIsLiveBackend(true);
-      markUpdated("trains");
-    }
-  }, [markUpdated]);
-
-  const fetchStations = useCallback(async () => {
-    const data = await safeFetchJson<Station[]>(`${getApiBase()}/stations`);
-    if (data && Array.isArray(data) && data.length > 0) {
-      const mapped: Station[] = data.map((s) => ({
-        id: s.id,
-        platforms: s.platforms,
-        station_code: s.id,
-        station_name: s.station_name || s.id,
-        latitude: s.latitude,
-        longitude: s.longitude,
-        is_junction: s.is_junction ?? false,
-      }));
-      setStations(mapped);
-      setIsLiveBackend(true);
-      markUpdated("stations");
-    }
-  }, [markUpdated]);
-
-  const fetchSchedule = useCallback(
-    async (silent = false) => {
-      if (!silent) setLoading(true);
-      try {
-        const data = await safeFetchJson<ScheduleResponse>(
-          `${getApiBase()}/schedule`,
-        );
-        if (data && Array.isArray(data.schedule) && data.schedule.length > 0) {
-          const current = scheduleRef.current;
-          const nextSchedule = data.schedule;
-          if (
-            current.length > 0 &&
-            JSON.stringify(current) !== JSON.stringify(nextSchedule)
-          ) {
-            setPreviousSchedule([...current]);
-          }
-          setSchedule([...nextSchedule]);
-          setIsLiveBackend(true);
-          markUpdated("schedule");
-
-          if (baselineSchedule.length === 0) {
-            const baselineData = await safeFetchJson<ScheduleEntry[]>(
-              `${getApiBase()}/baseline`,
-            );
-            if (baselineData && Array.isArray(baselineData)) {
-              setBaselineSchedule([...baselineData]);
-            }
-          }
-        }
-      } finally {
-        if (!silent) setLoading(false);
+  const refreshAll = useCallback(async (silent = true) => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    if(!silent) setLoading(true);
+    const generation = generationRef.current;
+    try {
+      if(localDatasetRef.current) {
+        setTrainPositions(positionsFromSchedule(scheduleRef.current));markUpdated('positions');return;
       }
-    },
-    [baselineSchedule.length, markUpdated],
-  );
-
-  const fetchLogs = useCallback(async () => {
-    const data = await safeFetchJson<LogEntry[]>(`${getApiBase()}/log`);
-    if (data && Array.isArray(data)) {
-      setLogs([...data.slice(-50).reverse()]);
-      setIsLiveBackend(true);
-      markUpdated("logs");
-    }
-  }, [markUpdated]);
-
-  const fetchDelays = useCallback(async () => {
-    const data = await safeFetchJson<unknown>(`${getApiBase()}/active-delays`);
-    if (data) {
-      setActiveDelays(normalizeActiveDelays(data as any));
-      setIsLiveBackend(true);
-      markUpdated("delays");
-    }
-  }, [markUpdated]);
-
-  const fetchPositions = useCallback(async () => {
-    const data = await safeFetchJson<TrainPosition[]>(
-      `${getApiBase()}/train-positions`,
-    );
-    if (data && Array.isArray(data) && data.length > 0) {
-      setTrainPositions(data);
-      setIsLiveBackend(true);
-      markUpdated("positions");
-    } else {
-      // Advance simulated train movement tick
-      setTrainPositions(getSimulatedTrainPositions());
-      markUpdated("positions");
-    }
-  }, [markUpdated]);
-
-  const fetchConflicts = useCallback(async () => {
-    const data = await safeFetchJson<ConflictsResponse>(
-      `${getApiBase()}/conflicts`,
-    );
-    if (data) {
-      setConflicts(data);
-      setIsLiveBackend(true);
-      markUpdated("conflicts");
-    }
-  }, [markUpdated]);
-
-  const fetchTrackStatus = useCallback(async () => {
-    const data = await safeFetchJson<TrackStatusResponse>(
-      `${getApiBase()}/track-status`,
-    );
-    if (data) {
-      setTrackStatus(data);
-      setIsLiveBackend(true);
-      markUpdated("trackStatus");
-    }
-  }, [markUpdated]);
-
-  const fetchRecommendations = useCallback(async () => {
-    const data = await safeFetchJson<Recommendation[]>(
-      `${getApiBase()}/recommendations`,
-    );
-    if (data && Array.isArray(data)) {
-      setRecommendations(data);
-      setIsLiveBackend(true);
-      markUpdated("recommendations");
-    }
-  }, [markUpdated]);
-
-  const refreshAll = useCallback(
-    async (silent = true) => {
-      setPreviousSchedule([...scheduleRef.current]);
-      await Promise.all([
-        fetchSchedule(silent),
-        fetchTrains(),
-        fetchStations(),
-        fetchLogs(),
-        fetchDelays(),
-        fetchPositions(),
-        fetchConflicts(),
-        fetchTrackStatus(),
-        fetchRecommendations(),
+      const [next, fleet, stationData, issues, delays, positions, track, recs, logData, baseline] = await Promise.all([
+        safeFetchJson<ScheduleResponse>(getApiBase()+'/schedule'),
+        safeFetchJson<Train[]>(getApiBase()+'/trains'),
+        safeFetchJson<Station[]>(getApiBase()+'/stations'),
+        safeFetchJson<ConflictsResponse>(getApiBase()+'/conflicts'),
+        safeFetchJson<Parameters<typeof normalizeActiveDelays>[0]>(getApiBase()+'/active-delays'),
+        safeFetchJson<TrainPosition[]>(getApiBase()+'/train-positions'),
+        safeFetchJson<TrackStatusResponse>(getApiBase()+'/track-status'),
+        safeFetchJson<Recommendation[]>(getApiBase()+'/recommendations'),
+        safeFetchJson<LogEntry[]>(getApiBase()+'/log'),
+        safeFetchJson<ScheduleEntry[]>(getApiBase()+'/baseline'),
       ]);
-    },
-    [
-      fetchSchedule,
-      fetchTrains,
-      fetchStations,
-      fetchLogs,
-      fetchDelays,
-      fetchPositions,
-      fetchConflicts,
-      fetchTrackStatus,
-      fetchRecommendations,
-    ],
-  );
-
-  const refreshSchedule = useCallback(
-    async (silent = true) => {
-      await fetchSchedule(silent);
-    },
-    [fetchSchedule],
-  );
+      if(generation !== generationRef.current) return;
+      if(next && Array.isArray(next.schedule) && Array.isArray(fleet) && Array.isArray(stationData) && issues) {
+        const changed=JSON.stringify(next.schedule)!==JSON.stringify(scheduleRef.current);
+        if(liveRef.current && changed)setPreviousSchedule(scheduleRef.current);
+        if(!liveRef.current){setActionBaselineSchedule([]);setLastActionSnapshot(null);}
+        scheduleRef.current=next.schedule;setSchedule(next.schedule);setTrains(fleet);
+        setStations(stationData.map(st=>({...st,station_name:st.station_name||st.id})));
+        setConflicts(issues);setIsLiveBackend(true);liveRef.current=true;
+        setActiveDataSource('Connected backend');
+        if(Array.isArray(baseline))setBaselineSchedule(baseline);
+        if(delays)setActiveDelays(normalizeActiveDelays(delays));
+        else setActiveDelays(delaysFromSchedule(next.schedule));
+        setRecommendations(Array.isArray(recs)?recs:[]);
+        if(Array.isArray(positions)){setTrainPositions(positions);markUpdated('positions');}
+        if(track){setTrackStatus(track);markUpdated('trackStatus');}
+        if(Array.isArray(logData))setLogs(prev=>[...prev.filter(log=>log.actor),...logData.slice(-50).reverse()].slice(0,200));
+        markUpdated('schedule');markUpdated('trains');markUpdated('stations');markUpdated('conflicts');
+      } else if(!liveRef.current) {
+        setTrainPositions(positionsFromSchedule(scheduleRef.current));markUpdated('positions');
+      }
+    } finally { refreshingRef.current=false;if(!silent)setLoading(false); }
+  },[markUpdated]);
+  const refreshSchedule = refreshAll;
 
   const setPreviousScheduleFromCurrent = useCallback(() => {
     setPreviousSchedule([...scheduleRef.current]);
@@ -491,7 +378,7 @@ export function OperationsFeedProvider({
   }, [lastActionSnapshot, operator]);
 
   const undoLastAction = useCallback(async () => {
-    if (!lastActionSnapshot) return false;
+    if (!lastActionSnapshot || role === "viewer" || isLiveBackend) return false;
     setBlockedPlatforms(lastActionSnapshot.blockedPlatforms ?? []);
     setActiveDelays(lastActionSnapshot.activeDelays);
     setSchedule(lastActionSnapshot.schedule);
@@ -508,7 +395,7 @@ export function OperationsFeedProvider({
     ]);
     setLastActionSnapshot(null);
     return true;
-  }, [lastActionSnapshot, operator]);
+  }, [lastActionSnapshot, operator, role, isLiveBackend]);
 
   // Local actions for demo / simulation resilience
   const applyRecommendationLocal = useCallback(
@@ -525,6 +412,7 @@ export function OperationsFeedProvider({
         throw new Error('This change creates another platform conflict.');
       }
 
+      setActionBaselineSchedule(prev => prev.length ? prev : [...scheduleRef.current]);
       // Save undo snapshot before applying
       setLastActionSnapshot({
         blockedPlatforms: [...blockedPlatforms],
@@ -537,7 +425,9 @@ export function OperationsFeedProvider({
       });
 
       const hold = rec.action_type === 'delay_train' ? rec.delay_minutes ?? 0 : 0;
+      scheduleRef.current=nextSchedule;
       setSchedule(nextSchedule);
+      markUpdated("schedule");
       if (hold) setActiveDelays(prev => {
         const existing = prev.find(d => d.train_id === rec.train_id);
         return [...prev.filter(d => d.train_id !== rec.train_id), {
@@ -546,7 +436,7 @@ export function OperationsFeedProvider({
         }];
       });
       const remaining = nextIssues;
-      setRecommendations(scenarioRecommendations(nextSchedule, remaining, blockedPlatforms));
+      setRecommendations(scenarioRecommendations(nextSchedule, remaining, blockedPlatforms,stations));
       setConflicts(prev => ({ ...prev, conflicts: remaining, active_conflicts: remaining.length, total_count: remaining.length }));
 
       // Add log
@@ -587,14 +477,17 @@ export function OperationsFeedProvider({
       const before = detectIssues(scheduleRef.current, blockedPlatforms);
       const after = detectIssues(nextSchedule, blockedPlatforms);
       if (after.some(issue => !before.some(existing => existing.id === issue.id))) throw new Error('The target platform has an overlapping booking or insufficient headway.');
+      setActionBaselineSchedule(prev => prev.length ? prev : [...scheduleRef.current]);
       setLastActionSnapshot({
         schedule: [...scheduleRef.current], conflicts: { ...conflicts }, recommendations: [...recommendations],
         blockedPlatforms: [...blockedPlatforms],
         activeDelays: [...activeDelays], description: rec.description, timestamp: Date.now(),
       });
+      scheduleRef.current=nextSchedule;
       setSchedule(nextSchedule);
+      markUpdated("schedule");
       setConflicts({ conflicts: after, active_conflicts: after.length, total_count: after.length });
-      setRecommendations(prev => prev.filter(r => after.some(c => c.station_id === r.station_id && c.trains_involved?.includes(r.train_id))));
+      setRecommendations(scenarioRecommendations(nextSchedule,after,blockedPlatforms,stations));
 
       setLogs((prev) => [
         {
@@ -612,6 +505,7 @@ export function OperationsFeedProvider({
   );
 
   const clearDelaysLocal = useCallback(async () => {
+    if(role === "viewer" || isLiveBackend) throw new Error("This session cannot change the timetable.");
     setLastActionSnapshot(null);
     setActiveDelays([]);
     const nextSchedule = scheduleRef.current.map(entry => ({
@@ -623,7 +517,7 @@ export function OperationsFeedProvider({
     const issues = detectIssues(nextSchedule, blockedPlatforms);
     setSchedule(nextSchedule);
     setConflicts({ conflicts: issues, total_count: issues.length, active_conflicts: issues.length });
-    setRecommendations([]);
+    setRecommendations(scenarioRecommendations(nextSchedule,issues,blockedPlatforms,stations));
     setLogs((prev) => [
       {
         timestamp: new Date().toISOString(),
@@ -633,9 +527,15 @@ export function OperationsFeedProvider({
       ...prev,
     ]);
     return true;
-  }, []);
+  }, [role,isLiveBackend,blockedPlatforms,stations]);
 
   const resetSystemLocal = useCallback(async () => {
+    if(role === "viewer" || isLiveBackend) throw new Error("This session cannot reset the timetable.");
+    generationRef.current++;
+    localDatasetRef.current=true;
+    setStations(MOCK_STATIONS);
+    setActiveDataSource("Synthetic corridor (HYB · SC · KCG)");
+    setActionBaselineSchedule([]);
     const start = new Date();
     setTrains(createMockTrains(start));
     setSchedule(createMockSchedule(start));
@@ -649,64 +549,27 @@ export function OperationsFeedProvider({
     setActiveDelays(MOCK_ACTIVE_DELAYS);
     setConflicts(MOCK_CONFLICTS);
     setRecommendations(MOCK_RECOMMENDATIONS);
-    setLogs([
+    setLogs(prev => [
       {
         timestamp: new Date().toISOString(),
+        actor:operator,
         action: "System Reset",
         details:
           "Operations console reset to standard Hyderabad corridor baseline timetable.",
       },
-      ...MOCK_LOGS,
+      ...prev,
     ]);
-  }, []);
+  }, [role,isLiveBackend,operator]);
 
-  // Real-time WebSocket connection attempt
   useEffect(() => {
-    let unmounted = false;
-    const connect = () => {
-      if (unmounted) return;
-      try {
-        const wsUrl = `${getApiBase().replace(/^http/, "ws")}/ws`;
-        const ws = new WebSocket(wsUrl);
-        ws.onopen = () => {
-          setWebsocketConnected(true);
-          setIsLiveBackend(true);
-          wsRef.current = ws;
-        };
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === "train_positions") {
-              setTrainPositions(data.data);
-              markUpdated("positions");
-            } else if (data.type === "schedule_update") {
-              void fetchSchedule(true);
-              void fetchConflicts();
-              void fetchLogs();
-            }
-          } catch {
-            /* ignore */
-          }
-        };
-        ws.onclose = () => {
-          setWebsocketConnected(false);
-          wsRef.current = null;
-        };
-        ws.onerror = () => {
-          setWebsocketConnected(false);
-        };
-      } catch {
-        setWebsocketConnected(false);
-      }
-    };
-
-    connect();
-    return () => {
-      unmounted = true;
-      wsRef.current?.close();
-      wsRef.current = null;
-    };
-  }, [fetchConflicts, fetchLogs, fetchSchedule, markUpdated]);
+    const ws = new WebSocket(getApiBase().replace(/^http/,'ws')+'/ws');
+    wsRef.current=ws;
+    ws.onopen=()=>setWebsocketConnected(true);
+    ws.onmessage=()=>{if(!localDatasetRef.current)void refreshAll(true);};
+    ws.onclose=()=>setWebsocketConnected(false);
+    ws.onerror=()=>setWebsocketConnected(false);
+    return()=>{ws.onopen=null;ws.onmessage=null;ws.onclose=null;ws.onerror=null;ws.close();wsRef.current=null;};
+  },[refreshAll]);
 
   // Initial load
   useEffect(() => {
@@ -717,14 +580,14 @@ export function OperationsFeedProvider({
     void load();
   }, [refreshAll]);
 
-  // Periodic polling & simulated position movement
+  // Fallback heartbeat polling ONLY when WebSocket is disconnected
   useEffect(() => {
-    if (pauseRefresh) return;
+    if (pauseRefresh || websocketConnected) return;
     const t = setInterval(() => {
       void refreshAll(true);
-    }, POLL_MS);
+    }, 15000);
     return () => clearInterval(t);
-  }, [pauseRefresh, refreshAll]);
+  }, [pauseRefresh, websocketConnected, refreshAll]);
 
   const conflictCount = useMemo(() => getConflictCount(conflicts), [conflicts]);
   const conflictList = useMemo(() => {
@@ -741,7 +604,10 @@ export function OperationsFeedProvider({
 
   const loadDemoScenario = useCallback((kind: DemoKind) => {
     if (isLiveBackend || role === 'viewer') return;
+    generationRef.current++;localDatasetRef.current=true;
+    setActionBaselineSchedule([]);setStations(MOCK_STATIONS);setActiveDataSource('Synthetic corridor (HYB · SC · KCG)');
     const demo = createDemo(kind);
+    scheduleRef.current=demo.schedule;
     setTrains(demo.trains); setSchedule(demo.schedule); setBaselineSchedule(demo.baseline);
     setPreviousSchedule([]); setActiveDelays(demo.delays); setBlockedPlatforms(demo.blocked);
     setConflicts({ conflicts:demo.issues, active_conflicts:demo.issues.length, total_count:demo.issues.length });
@@ -752,33 +618,25 @@ export function OperationsFeedProvider({
 
   const importTimetable = useCallback(
     (newSchedule: ScheduleEntry[], newTrains: Train[], sourceName?: string) => {
-      if (role === 'viewer') return;
+      if (role === 'viewer' || isLiveBackend) throw new Error('Import is available in editable simulation sessions only.');
+      if(newSchedule.some(e=>!Number.isFinite(Date.parse(e.actual_arrival)) || !Number.isFinite(Date.parse(e.actual_departure)) || Date.parse(e.actual_departure)<Date.parse(e.actual_arrival))) throw new Error('Timetable dates are invalid.');
+      generationRef.current++;localDatasetRef.current=true;wsRef.current?.close();
+      scheduleRef.current=newSchedule;
+      const importedStations=stationsForSchedule(newSchedule);setStations(importedStations);
+      setBlockedPlatforms([]);setActionBaselineSchedule([]);
+      setTrainPositions(positionsFromSchedule(newSchedule));setTrackStatus(null);
       setSchedule(newSchedule);
-      setBaselineSchedule(newSchedule);
+      setBaselineSchedule(newSchedule.map(e=>({...e,actual_arrival:e.scheduled_arrival||e.actual_arrival,actual_departure:e.scheduled_departure||e.actual_departure})));
       setPreviousSchedule([]);
       setTrains(newTrains);
       const source = sourceName || 'Imported timetable';
       setActiveDataSource(source);
 
-      const issues = detectIssues(newSchedule, blockedPlatforms);
+      const issues = detectIssues(newSchedule, []);
       setConflicts({ conflicts: issues, active_conflicts: issues.length, total_count: issues.length });
-      setRecommendations(scenarioRecommendations(newSchedule, issues, blockedPlatforms));
+      setRecommendations(scenarioRecommendations(newSchedule, issues, [],importedStations));
 
-      const delays: ActiveDelay[] = [];
-      newSchedule.forEach((entry) => {
-        const sch = Date.parse(entry.scheduled_departure || entry.scheduled_arrival || '');
-        const act = Date.parse(entry.actual_departure || entry.actual_arrival || '');
-        if (!isNaN(sch) && !isNaN(act) && act > sch + 60000) {
-          const delayMin = Math.round((act - sch) / 60000);
-          delays.push({
-            train_id: entry.train_id,
-            type: 'operational',
-            minutes: delayMin,
-            reason: entry.reason || 'Imported delay',
-          });
-        }
-      });
-      setActiveDelays(delays);
+      setActiveDelays(delaysFromSchedule(newSchedule));
       setClaimedConflicts({});
       setAcknowledgedConflicts([]);
       setLastActionSnapshot(null);
@@ -786,24 +644,27 @@ export function OperationsFeedProvider({
       markUpdated('schedule');
       markUpdated('trains');
     },
-    [role, blockedPlatforms, recordEvent, markUpdated],
+    [role, isLiveBackend, recordEvent, markUpdated],
   );
 
   const setPlatformService = useCallback((stationId: string, platform: number, closed: boolean) => {
     if (isLiveBackend || role === 'viewer') return;
+    if(!Number.isInteger(platform)||platform<1||platform>(stations.find(s=>s.id===stationId)?.platforms||0)) throw new Error('Invalid platform.');
+    setLastActionSnapshot(null);
     const key = stationId + '-' + platform;
     const next = closed ? [...new Set([...blockedPlatforms,key])] : blockedPlatforms.filter(p => p !== key);
     const issues = detectIssues(scheduleRef.current,next);
     setBlockedPlatforms(next); setConflicts({ conflicts:issues, active_conflicts:issues.length, total_count:issues.length });
-    setRecommendations(scenarioRecommendations(scheduleRef.current,issues,next));
+    setRecommendations(scenarioRecommendations(scheduleRef.current,issues,next,stations));
     recordEvent(closed ? 'Platform closed' : 'Platform reopened', stationId + ' platform ' + platform);
-  }, [blockedPlatforms, isLiveBackend, role, recordEvent]);
+  }, [blockedPlatforms, isLiveBackend, role, recordEvent,stations]);
 
   const value = useMemo<OperationsFeedState>(
     () => ({
       recordEvent, acknowledgedConflicts, acknowledgeConflict, blockedPlatforms, setPlatformService, loadDemoScenario,
       trains,
       schedule,
+      actionBaselineSchedule,
       baselineSchedule,
       previousSchedule,
       stations,
@@ -849,6 +710,7 @@ export function OperationsFeedProvider({
       recordEvent, acknowledgedConflicts, acknowledgeConflict, blockedPlatforms, setPlatformService, loadDemoScenario,
       trains,
       schedule,
+      actionBaselineSchedule,
       baselineSchedule,
       previousSchedule,
       stations,
@@ -911,6 +773,7 @@ export function useOperationsFeed(): OperationsFeedState {
       loadDemoScenario: () => {},
       trains: MOCK_TRAINS,
       schedule: [],
+      actionBaselineSchedule: [],
       baselineSchedule: [],
       previousSchedule: [],
       stations: MOCK_STATIONS,

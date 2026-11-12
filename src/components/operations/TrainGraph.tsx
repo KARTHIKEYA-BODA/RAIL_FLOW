@@ -19,17 +19,28 @@ interface TrainGraphProps {
 }
 
 function getTimeWindow(entries: ScheduleEntry[], nowMs: number) {
-  if (entries.length === 0) {
+  const validTimes = entries
+    .flatMap((e) => [
+      Date.parse(e.actual_arrival),
+      Date.parse(e.actual_departure),
+    ])
+    .filter((t) => Number.isFinite(t) && t > 0);
+
+  if (validTimes.length === 0) {
     return { min: nowMs - 30 * 60 * 1000, max: nowMs + 90 * 60 * 1000 };
   }
-  const times = entries.flatMap((e) => [
-    new Date(e.actual_arrival).getTime(),
-    new Date(e.actual_departure).getTime(),
-  ]);
-  const minTime = Math.min(...times, nowMs - 25 * 60 * 1000);
-  const maxTime = Math.max(...times, nowMs + 75 * 60 * 1000);
+
+  const entriesMin = Math.min(...validTimes);
+  const entriesMax = Math.max(...validTimes);
+
+  const isNowNearby = nowMs >= entriesMin - 6 * 3600 * 1000 && nowMs <= entriesMax + 6 * 3600 * 1000;
+  const minTime = isNowNearby ? Math.min(entriesMin, nowMs - 25 * 60 * 1000) : entriesMin;
+  const maxTime = isNowNearby ? Math.max(entriesMax, nowMs + 75 * 60 * 1000) : entriesMax;
+
   const padding = 15 * 60 * 1000;
-  return { min: minTime - padding, max: maxTime + padding };
+  const min = minTime - padding;
+  const max = Math.min(min + 12 * 3600 * 1000, Math.max(min + 30 * 60 * 1000, maxTime + padding));
+  return { min, max };
 }
 
 function conflictTrainIds(conflicts: ConflictItem[]): Set<string> {
@@ -80,7 +91,7 @@ export function TrainGraph({
     const ticks: { time: number; pct: number; label: string }[] = [];
     const interval = 15 * 60 * 1000;
     const start = Math.ceil(timeWindow.min / interval) * interval;
-    for (let t = start; t <= timeWindow.max; t += interval) {
+    for (let t = start; t <= timeWindow.max && ticks.length < 50; t += interval) {
       const pct = ((t - timeWindow.min) / span) * 100;
       if (pct >= 0 && pct <= 100) {
         ticks.push({ time: t, pct, label: formatTime(new Date(t).toISOString()) });
@@ -180,11 +191,11 @@ export function TrainGraph({
     const topStyle = hasOverlap ? (offset === 0 ? 'top-1' : 'top-5') : 'top-1.5';
 
     // Strict semantic colors
-    let bgClass = 'bg-[#9ac4fb]/20 text-[#9ac4fb] border border-[#9ac4fb]/40';
+    let bgClass = 'bg-[#93b8ff]/15 text-[#93b8ff] border border-[#93b8ff]/30';
     if (isConflict) {
-      bgClass = 'bg-[#ffab9e] text-white border border-[#ffab9e]';
+      bgClass = 'bg-[#ff6a5c] text-white border border-white/60 shadow-[0_0_10px_rgba(255,106,92,0.5)]';
     } else if (isDelayed) {
-      bgClass = 'bg-[#f2c278]/20 text-[#f2c278] border border-[#f2c278]/40';
+      bgClass = 'bg-[#f2b84b]/15 text-[#f2b84b] border border-[#f2b84b]/30';
     }
 
     return (
@@ -201,7 +212,7 @@ export function TrainGraph({
         onClick={() => onEntryClick?.(e)}
       >
         <span className="truncate font-semibold">{e.train_id}</span>
-        {isOverriddenEntry(e) && <span className="ml-1 text-[9px] text-[#f2c278]">★</span>}
+        {isOverriddenEntry(e) && <span className="ml-1 text-[9px] text-[#f2b84b]">★</span>}
       </button>
     );
   };
@@ -214,25 +225,25 @@ export function TrainGraph({
       title={`${marker.trainId} live telemetry`}
       aria-hidden
     >
-      <span className="inline-block h-2.5 w-2.5 rotate-45 border border-white bg-[#9be7be]" />
+      <span className="inline-block h-2.5 w-2.5 rotate-45 border border-white bg-[#55e0a3]" />
     </div>
   );
 
   return (
-    <div className="rounded border border-[#344039] bg-[#1a231f] p-4 text-[#f1f5ef]">
+    <div className="hud-card font-sans p-4 text-white">
       {/* Top Controls & Semantic Legend */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-[#344039] pb-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-[#acb9b0]">View mode:</span>
-          <div className="flex gap-1 rounded border border-[#344039] bg-[#111816] p-0.5 text-xs">
+          <span className="text-xs font-semibold text-white/60">View mode:</span>
+          <div className="flex gap-1 rounded-lg border border-white/10 bg-black/30 p-0.5 text-xs">
             {(['occupation', 'corridor', 'compare'] as GraphMode[]).map((m) => (
               <button
                 key={m}
                 type="button"
-                className={`rounded px-2.5 py-1 transition-colors ${
+                className={`rounded px-2.5 py-1 transition-all ${
                   mode === m
-                    ? 'bg-[#1a231f] text-white border border-[#344039]'
-                    : 'text-[#acb9b0] hover:text-white'
+                    ? 'bg-gradient-to-b from-[#f2c56d] to-[#dfa83f] text-[#1c1710] font-bold shadow-sm'
+                    : 'text-white/60 hover:text-white'
                 }`}
                 onClick={() => setMode(m)}
               >
@@ -244,27 +255,27 @@ export function TrainGraph({
 
         {/* Legend */}
         <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="flex items-center gap-1.5 text-[#acb9b0]">
-            <span className="h-2 w-3 rounded bg-[#9ac4fb]" />
+          <span className="flex items-center gap-1.5 text-white/70">
+            <span className="h-2 w-3 rounded bg-[#93b8ff]" />
             Nominal
           </span>
-          <span className="flex items-center gap-1.5 text-[#acb9b0]">
-            <span className="h-2 w-3 rounded bg-[#f2c278]" />
+          <span className="flex items-center gap-1.5 text-white/70">
+            <span className="h-2 w-3 rounded bg-[#f2b84b]" />
             Delayed
           </span>
-          <span className="flex items-center gap-1.5 text-[#ffab9e] font-medium">
-            <span className="h-2 w-3 rounded bg-[#ffab9e]" />
+          <span className="flex items-center gap-1.5 text-[#ff6a5c] font-medium">
+            <span className="h-2 w-3 rounded bg-[#ff6a5c]" />
             Safety clash
           </span>
-          <span className="flex items-center gap-1.5 text-[#acb9b0]">
-            <span className="h-2 w-2 rotate-45 bg-[#9be7be]" />
+          <span className="flex items-center gap-1.5 text-white/70">
+            <span className="h-2 w-2 rotate-45 bg-[#55e0a3]" />
             Moving rake
           </span>
         </div>
       </div>
 
       {/* Sticky 15-Minute Time Grid Header */}
-      <div className="sticky top-0 z-30 mb-2 h-7 rounded border-b border-[#344039] bg-[#111816] font-mono text-[11px] text-[#acb9b0] flex items-center relative overflow-hidden">
+      <div className="sticky top-0 z-30 mb-2 h-7 rounded-lg border-b border-white/10 bg-[#16181d] font-mono text-[11px] text-white/60 flex items-center relative overflow-hidden">
         {fifteenMinTicks.map((tick) => (
           <div
             key={tick.time}
@@ -283,7 +294,7 @@ export function TrainGraph({
           {fifteenMinTicks.map((tick) => (
             <div
               key={tick.time}
-              className="absolute top-0 bottom-0 border-l border-dashed border-[#344039]/50"
+              className="absolute top-0 bottom-0 border-l border-dashed border-white/10"
               style={{ left: `${tick.pct}%` }}
             />
           ))}
@@ -291,11 +302,11 @@ export function TrainGraph({
 
         {/* NOW Line Indicator */}
         <div
-          className="pointer-events-none absolute top-0 bottom-0 z-20 w-0.5 bg-[#ffab9e]"
+          className="pointer-events-none absolute top-0 bottom-0 z-20 w-0.5 bg-[#f2b84b]"
           style={{ left: `${Math.min(100, Math.max(0, nowPct))}%` }}
           aria-hidden
         >
-          <span className="absolute -top-1 -translate-x-1/2 rounded bg-[#ffab9e] px-1 py-0.2 font-mono text-[9px] font-semibold text-white">
+          <span className="absolute -top-1 -translate-x-1/2 rounded bg-[#f2b84b] px-1.5 py-0.5 font-mono text-[9px] font-bold text-[#1c1710] shadow">
             NOW ({formatTime(now.toISOString())})
           </span>
         </div>
@@ -307,12 +318,12 @@ export function TrainGraph({
               const data = stationMap[st.id];
               if (!data) return null;
               return (
-                <div key={st.id} className="rounded border border-[#344039] bg-[#111816] p-3">
+                <div key={st.id} className="rounded-xl border border-white/10 bg-[#16181d]/60 p-3">
                   <div className="mb-2 flex items-center justify-between text-xs">
-                    <span className="font-semibold text-white px-2 py-0.5 rounded bg-[#1a231f] border border-[#344039]">
+                    <span className="font-semibold text-white px-2.5 py-0.5 rounded-md bg-white/5 border border-white/10">
                       {st.id} - {st.station_name || (st.id === 'HYB' ? 'Hyderabad' : st.id === 'SC' ? 'Secunderabad' : 'Kacheguda')}
                     </span>
-                    <span className="text-[#acb9b0]">{st.platforms} platforms</span>
+                    <span className="text-white/50">{st.platforms} platforms</span>
                   </div>
 
                   <div className="space-y-1.5">
@@ -322,9 +333,9 @@ export function TrainGraph({
                       return (
                         <div
                           key={p}
-                          className="relative h-10 rounded border border-[#344039] bg-[#1a231f] transition-colors"
+                          className="relative h-10 rounded-lg border border-white/10 bg-[#141518] transition-colors"
                         >
-                          <div className="absolute left-2 top-2.5 text-xs text-[#acb9b0] z-20">
+                          <div className="absolute left-2.5 top-2.5 text-xs text-white/50 z-20 font-mono">
                             P{p}
                           </div>
                           {rowEntries.map((e, idx) =>
@@ -347,8 +358,8 @@ export function TrainGraph({
         {mode === 'corridor' && (
           <div className="space-y-2 relative z-10">
             {Object.entries(corridorLanes).map(([trainId, entries]) => (
-              <div key={trainId} className="relative h-10 rounded border border-[#344039] bg-[#111816]">
-                <div className="absolute left-2 top-2.5 text-xs font-semibold text-white z-20">
+              <div key={trainId} className="relative h-10 rounded-lg border border-white/10 bg-[#141518]">
+                <div className="absolute left-2.5 top-2.5 text-xs font-semibold text-white z-20 font-mono">
                   {trainId}
                 </div>
                 {entries.map((e, i) => renderBar(e, false, `${trainId}-${i}`, entries))}

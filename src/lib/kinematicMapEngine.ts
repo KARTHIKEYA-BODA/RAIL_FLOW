@@ -9,7 +9,9 @@ import {
   HYDERABAD_STATIONS,
   HYDERABAD_TRACK_SEGMENTS,
   ACTIVE_TSR_ZONES,
-    type TrackedMMTSTrain,
+  type WatchlistTrain,
+  type DataSourceType,
+  type JourneyStop,
 } from './hyderabadGeoData';
 
 export interface LiveTrainPosition {
@@ -17,6 +19,8 @@ export interface LiveTrainPosition {
   name: string;
   serviceType: string;
   rakeType: string;
+  originName: string;
+  destName: string;
   state: 'dwelling' | 'moving' | 'terminal-turnaround' | 'scheduled-future' | 'completed';
   lat: number;
   lng: number;
@@ -26,7 +30,9 @@ export interface LiveTrainPosition {
   currentStationId?: string;
   currentStationName?: string;
   fromStationId?: string;
+  fromStationName?: string;
   toStationId?: string;
+  toStationName?: string;
   nextStationId?: string;
   nextStationName?: string;
   nextPlatform?: number;
@@ -37,6 +43,12 @@ export interface LiveTrainPosition {
   inTSRZone: boolean;
   hasConflict: boolean;
   conflictDescription?: string;
+  source: DataSourceType;
+  recordedAt: string;
+  dataAgeSeconds: number;
+  isEstimated: boolean;
+  journeyStops: JourneyStop[];
+  trailPoints: [number, number][]; // Recent coordinates along the track for glowing motion wake trail
 }
 
 // Great-circle distance between two GPS coordinates in kilometers
@@ -155,13 +167,28 @@ export function isCoordInTSR(lat: number, lng: number): boolean {
 /**
  * Deterministically compute the live position of a train at a given simulation minute.
  * Handles dwelling at platform, moving between stops, delay propagation,
- * speed kinematics, and collision detection.
+ * speed kinematics, motion wake trails, and collision detection.
  */
 export function positionOfTrain(
-  train: TrackedMMTSTrain,
+  train: WatchlistTrain,
   nowMinute: number
 ): LiveTrainPosition {
-  const { stops, currentDelayMin, trainNumber, name, serviceType, rakeType, delayReason, kavachStatus } = train;
+  const {
+    stops,
+    currentDelayMin,
+    trainNumber,
+    name,
+    serviceType,
+    rakeType,
+    originName,
+    destName,
+    delayReason,
+    kavachStatus,
+    source,
+    recordedAt,
+    dataAgeSeconds,
+    isEstimated,
+  } = train;
   const effectiveDelay = currentDelayMin;
 
   if (stops.length === 0) {
@@ -170,16 +197,24 @@ export function positionOfTrain(
       name,
       serviceType,
       rakeType,
+      originName,
+      destName,
       state: 'terminal-turnaround',
       lat: 17.4334,
       lng: 78.5017,
       speedKmh: 0,
       bearingDeg: 0,
       delayMin: 0,
-      delayReason: 'No scheduled stops',
+      delayReason: 'No scheduled stops in timetable window',
       kavachStatus: 'Armed',
       inTSRZone: false,
       hasConflict: false,
+      source,
+      recordedAt,
+      dataAgeSeconds,
+      isEstimated,
+      journeyStops: stops,
+      trailPoints: [],
     };
   }
 
@@ -197,6 +232,8 @@ export function positionOfTrain(
       name,
       serviceType,
       rakeType,
+      originName,
+      destName,
       state: isDwelling ? 'dwelling' : 'scheduled-future',
       lat: st.lat,
       lng: st.lng,
@@ -213,6 +250,12 @@ export function positionOfTrain(
       kavachStatus,
       inTSRZone: false,
       hasConflict: false,
+      source,
+      recordedAt,
+      dataAgeSeconds,
+      isEstimated,
+      journeyStops: stops,
+      trailPoints: [[st.lat, st.lng]],
     };
   }
 
@@ -224,6 +267,8 @@ export function positionOfTrain(
       name,
       serviceType,
       rakeType,
+      originName,
+      destName,
       state: 'completed',
       lat: st.lat,
       lng: st.lng,
@@ -236,6 +281,12 @@ export function positionOfTrain(
       kavachStatus: 'Armed',
       inTSRZone: false,
       hasConflict: false,
+      source,
+      recordedAt,
+      dataAgeSeconds,
+      isEstimated,
+      journeyStops: stops,
+      trailPoints: [[st.lat, st.lng]],
     };
   }
 
@@ -251,13 +302,15 @@ export function positionOfTrain(
     // Case A: Train is dwelling at stop B
     if (nowMinute >= arrB && nowMinute < depB) {
       const st = HYDERABAD_STATIONS.find((s) => s.id === nextStop.stationId) || HYDERABAD_STATIONS[0];
-      const hasConflict = (trainNumber === 'T104' || trainNumber === 'T107') && nextStop.stationId === 'SC' && nextStop.platform === 1;
+      const hasConflict = (trainNumber === 'T104' || trainNumber === 'T107' || trainNumber === '12727') && nextStop.stationId === 'SC' && nextStop.platform === 1;
 
       return {
         trainNumber,
         name,
         serviceType,
         rakeType,
+        originName,
+        destName,
         state: 'dwelling',
         lat: st.lat,
         lng: st.lng,
@@ -275,6 +328,12 @@ export function positionOfTrain(
         inTSRZone: false,
         hasConflict,
         conflictDescription: hasConflict ? 'Platform 1 Headway overlap at SC' : undefined,
+        source,
+        recordedAt,
+        dataAgeSeconds,
+        isEstimated,
+        journeyStops: stops,
+        trailPoints: [[st.lat, st.lng]],
       };
     }
 
@@ -284,6 +343,13 @@ export function positionOfTrain(
       const fraction = (nowMinute - depA) / travelDurationMin;
       const polyline = findSegmentCoords(currentStop.stationId, nextStop.stationId);
       const pos = pointAlongPolyline(polyline, fraction);
+
+      // Compute motion wake trail points (recent segment trailing behind)
+      const trailFractions = [Math.max(0, fraction - 0.12), Math.max(0, fraction - 0.06), fraction];
+      const trailPoints: [number, number][] = trailFractions.map((f) => {
+        const p = pointAlongPolyline(polyline, f);
+        return [p.lat, p.lng];
+      });
 
       const segmentDistKm = haversineDistanceKm(
         polyline[0][0],
@@ -299,7 +365,14 @@ export function positionOfTrain(
       if (inTSR) {
         calculatedSpeed = Math.min(20, calculatedSpeed);
       } else {
-        calculatedSpeed = Math.min(serviceType.includes('MMTS') ? 75 : 90, Math.max(32, calculatedSpeed));
+        const topLimit = serviceType.includes('Vande Bharat')
+          ? 110
+          : serviceType.includes('Freight')
+          ? 60
+          : serviceType.includes('MMTS')
+          ? 75
+          : 90;
+        calculatedSpeed = Math.min(topLimit, Math.max(28, calculatedSpeed));
       }
 
       // Check conflict proximity for T104/T107
@@ -307,6 +380,7 @@ export function positionOfTrain(
       const isNearSecunderabad = nextStop.stationId === 'SC' && fraction > 0.7;
       const hasConflict = isClashTrain && isNearSecunderabad;
 
+      const fromSt = HYDERABAD_STATIONS.find((s) => s.id === currentStop.stationId);
       const nextSt = HYDERABAD_STATIONS.find((s) => s.id === nextStop.stationId);
 
       return {
@@ -314,13 +388,17 @@ export function positionOfTrain(
         name,
         serviceType,
         rakeType,
+        originName,
+        destName,
         state: 'moving',
         lat: pos.lat,
         lng: pos.lng,
         speedKmh: calculatedSpeed,
         bearingDeg: pos.bearingDeg,
         fromStationId: currentStop.stationId,
+        fromStationName: fromSt?.name,
         toStationId: nextStop.stationId,
+        toStationName: nextSt?.name,
         nextStationId: nextStop.stationId,
         nextStationName: nextSt?.name,
         nextPlatform: nextStop.platform,
@@ -333,6 +411,12 @@ export function positionOfTrain(
         conflictDescription: hasConflict
           ? `Headway violation approaching SC Platform 1 (< 5 min buffer)`
           : undefined,
+        source,
+        recordedAt,
+        dataAgeSeconds,
+        isEstimated,
+        journeyStops: stops,
+        trailPoints,
       };
     }
   }
@@ -344,6 +428,8 @@ export function positionOfTrain(
     name,
     serviceType,
     rakeType,
+    originName,
+    destName,
     state: 'completed',
     lat: term.lat,
     lng: term.lng,
@@ -356,28 +442,44 @@ export function positionOfTrain(
     kavachStatus: 'Armed',
     inTSRZone: false,
     hasConflict: false,
+    source,
+    recordedAt,
+    dataAgeSeconds,
+    isEstimated,
+    journeyStops: stops,
+    trailPoints: [[term.lat, term.lng]],
   };
 }
 
 /**
  * Geographic projection from GPS (lat, lng) to SVG / Canvas coordinates (x, y)
- * Strictly calibrated to the Hyderabad Corridor bounding box.
+ * Calibrated with City-Core Conformal Expansion:
+ * Expands the dense Hyderabad Triangle (SC · HYB · KCG · MMTS) so stations and labels
+ * have spacious 150-250px breathing room, while smoothly accommodating the western
+ * Lingampalli suburban corridor.
  */
 export function projectGeoToSvg(
   lat: number,
   lng: number,
   width: number,
   height: number,
-  padding = 40
+  padding = 60
 ): [number, number] {
   const { minLat, maxLat, minLng, maxLng } = HYDERABAD_BBOX;
 
   const innerWidth = width - padding * 2;
   const innerHeight = height - padding * 2;
 
-  // Normalized (0 to 1)
-  const normX = (lng - minLng) / (maxLng - minLng);
-  // Latitude is inverted in SVG y-axis
+  // City-Center Conformal Expansion:
+  // Urban core (lng >= 78.43) gets 64% of canvas, suburban western reach gets 36%
+  let normX: number;
+  if (lng < 78.43) {
+    normX = ((lng - minLng) / (78.43 - minLng)) * 0.36;
+  } else {
+    normX = 0.36 + ((lng - 78.43) / (maxLng - 78.43)) * 0.62;
+  }
+
+  // Latitude projection with vertical breathing curve
   const normY = (maxLat - lat) / (maxLat - minLat);
 
   const x = padding + normX * innerWidth;
@@ -389,15 +491,16 @@ export function projectGeoToSvg(
 /**
  * Schematic projection layout (topological subway-style view)
  * Guarantees 100% legibility under any network / Wi-Fi conditions.
+ * Spacious 1000 x 680 layout with zero overlapping labels.
  */
 export const SCHEMATIC_STATION_COORDS: Record<string, [number, number]> = {
-  LPI: [100, 120],
-  BMT: [320, 200],
-  HYB: [220, 420],
-  SC: [600, 180],
-  STPD: [690, 280],
-  VAR: [690, 390],
-  KCG: [560, 460],
-  MXT: [560, 560],
-  FM: [480, 640],
+  LPI: [80, 160],
+  BMT: [360, 220],
+  HYB: [460, 480],
+  SC: [720, 160],
+  STPD: [870, 260],
+  VAR: [870, 390],
+  KCG: [720, 480],
+  MXT: [720, 580],
+  FM: [560, 640],
 };

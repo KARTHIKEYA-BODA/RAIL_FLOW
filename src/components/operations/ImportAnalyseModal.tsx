@@ -27,7 +27,10 @@ import {
   type TimetableAnalysisResult,
   type StandardTimetableRow,
 } from '../../lib/timetableEngine';
-import type { ScheduleEntry, Train } from '../../types/railway';
+import { analysisToCorridor, indianServiceDate, parseTimetableCsv } from '../../lib/timetableImport';
+import { downloadFile, escapeCsv } from '../../lib/corridorStatus';
+import { usePreferences } from '../../context/WorkspacePreferences';
+import { ModalFrame } from '../ui/ModalFrame';
 
 interface Props {
   open: boolean;
@@ -36,6 +39,9 @@ interface Props {
 
 export function ImportAnalyseModal({ open, onClose }: Props) {
   const fileInputId = useId();
+  const prefs = usePreferences();
+  const [serviceDate,setServiceDate] = useState(indianServiceDate);
+  const [approved,setApproved] = useState(false);
   const feed = useOperationsFeed();
 
   // Wizard state: 'upload' | 'mapping' | 'results'
@@ -59,47 +65,13 @@ export function ImportAnalyseModal({ open, onClose }: Props) {
   const [activeFilter, setActiveFilter] = useState<'all' | 'conflicts' | 'saved' | 'delayed'>('all');
   const [sourceName, setSourceName] = useState<string>('Custom Timetable');
 
-  if (!open) return null;
+
 
   // Process raw CSV string
   const processCsvText = (csv: string, name: string) => {
     try {
-      const lines = csv.trim().split(/\r?\n/).filter((l) => l.trim().length > 0);
-      if (lines.length < 2) {
-        notify.error('File must contain a header and at least one data row.');
-        return;
-      }
-
-      // Simple CSV split handling quotes
-      const parseCsvLine = (line: string): string[] => {
-        const regex = /(?:,|\n|^)("(?:(?:"")*[^"]*)*"|[^",\n]*|(?:\n|$))/g;
-        const result: string[] = [];
-        let match;
-        while ((match = regex.exec(line)) !== null) {
-          let val = match[1];
-          if (val === undefined) break;
-          if (val.startsWith('"') && val.endsWith('"')) {
-            val = val.slice(1, -1).replace(/""/g, '"');
-          }
-          result.push(val.trim());
-          if (regex.lastIndex >= line.length) break;
-        }
-        return result.length ? result : line.split(',').map((s) => s.trim());
-      };
-
-      const headers = parseCsvLine(lines[0]);
-      const rows: RawTimetableRow[] = [];
-
-      for (let i = 1; i < lines.length; i++) {
-        const parts = parseCsvLine(lines[i]);
-        if (parts.length < 2) continue;
-        const obj: RawTimetableRow = {};
-        headers.forEach((h, idx) => {
-          obj[h] = parts[idx] ?? '';
-        });
-        rows.push(obj);
-      }
-
+      const {headers,rows} = parseTimetableCsv(csv);
+      setApproved(false);
       const detected = autoDetectColumns(headers);
       setRawHeaders(headers);
       setRawRows(rows);
@@ -112,14 +84,16 @@ export function ImportAnalyseModal({ open, onClose }: Props) {
       setStep('mapping');
       notify.success(`Loaded ${rows.length} rows from ${name}`);
     } catch (err) {
-      notify.error('Failed to parse CSV file. Please verify delimiter.');
+      notify.error(err instanceof Error ? err.message : 'Failed to parse CSV.');
     }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 2_000_000) { notify.error('Choose a CSV smaller than 2 MB.'); return; }
     const reader = new FileReader();
+    reader.onerror = () => notify.error('The file could not be read. Try again.');
     reader.onload = (event) => {
       const content = event.target?.result as string;
       processCsvText(content, file.name);
@@ -150,98 +124,32 @@ export function ImportAnalyseModal({ open, onClose }: Props) {
 
     setIsSolving(true);
     setTimeout(() => {
-      const res = analyseAndOptimizeTimetable(validation.standardRows, 5);
-      setAnalysisResult(res);
-      setIsSolving(false);
-      setStep('results');
-      notify.success(`Analysis complete: ${res.metrics.delaySavedMin}m saved across ${res.stops.length} movements.`);
-    }, 450); // Short realistic calculation tick
+      try {
+        const res = analyseAndOptimizeTimetable(validation.standardRows,5);
+        setAnalysisResult(res);setStep('results');setApproved(false);
+        notify.success('Timetable analysis ready');
+      } catch (error) { notify.error(error instanceof Error ? error.message : 'Analysis failed.'); }
+      finally { setIsSolving(false); }
+    },0);
   };
 
   const handleApplyToCorridor = () => {
     if (!analysisResult) return;
 
-    // Convert engine stops to ScheduleEntry
-    const newSchedule: ScheduleEntry[] = analysisResult.stops.map((s) => ({
-      train_id: s.trainId,
-      station_id: s.stationId,
-      assigned_platform: s.platformAfter,
-      actual_arrival: s.proposedArrival,
-      actual_departure: s.proposedDeparture,
-      reason: s.actionTaken,
-    }));
-
-    const newTrains: Train[] = Array.from(new Set(analysisResult.stops.map((s) => s.trainId))).map((id) => {
-      const stop = analysisResult.stops.find((s) => s.trainId === id)!;
-      return {
-        id,
-        type: stop.trainType,
-        priority: stop.priority,
-        origin: stop.stationId,
-        destination: 'HYB',
-        platform_pref: stop.platformAfter,
-      };
-    });
-
-    feed.importTimetable(newSchedule, newTrains, sourceName);
-    notify.success(`Applied ${newSchedule.length} timetable stops to live corridor timeline!`);
-    onClose();
+    if (!approved || prefs.role === 'viewer' || feed.isLiveBackend || analysisResult.conflictsAfter.length) return;
+    try {
+      const {schedule,trains} = analysisToCorridor(analysisResult,serviceDate);
+      feed.importTimetable(schedule,trains,sourceName);
+      notify.success('Imported timetable loaded into this simulation session');
+      onClose();
+    } catch (error) { notify.error(error instanceof Error ? error.message : 'Import failed.'); }
   };
 
   const handleExportCsv = () => {
     if (!analysisResult) return;
-
-    const headers = [
-      'Train ID',
-      'Train Type',
-      'Priority',
-      'Station',
-      'Original PF',
-      'Proposed PF',
-      'Scheduled Arr',
-      'Scheduled Dep',
-      'Predicted Arr',
-      'Proposed Arr',
-      'Proposed Dep',
-      'Delay Before (min)',
-      'Delay After (min)',
-      'Delay Saved (min)',
-      'Root Cause',
-      'Optimization Action',
-    ];
-
-    const lines = [headers.join(',')];
-    analysisResult.stops.forEach((s) => {
-      lines.push(
-        [
-          `"${s.trainId}"`,
-          `"${s.trainType}"`,
-          s.priority,
-          `"${s.stationId}"`,
-          s.platformBefore,
-          s.platformAfter,
-          `"${s.schedArrival}"`,
-          `"${s.schedDeparture}"`,
-          `"${s.predictedArrival}"`,
-          `"${s.proposedArrival}"`,
-          `"${s.proposedDeparture}"`,
-          s.delayBeforeMin,
-          s.delayAfterMin,
-          s.delaySavedMin,
-          `"${s.rootCause.replace(/"/g, '""')}"`,
-          `"${s.actionTaken.replace(/"/g, '""')}"`,
-        ].join(',')
-      );
-    });
-
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `TrainVision_Optimized_Timetable_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    notify.success('Exported optimized timetable CSV');
+    const columns = ['Train','Station','Platform before','Platform after','Scheduled arrival','Scheduled departure','Proposed arrival','Proposed departure','Delay before','Delay after','Delay saved','Reason','Action'];
+    const rows = analysisResult.stops.map(s=>[s.trainId,s.stationId,s.platformBefore,s.platformAfter,s.schedArrival,s.schedDeparture,s.proposedArrival,s.proposedDeparture,s.delayBeforeMin,s.delayAfterMin,s.delaySavedMin,s.rootCause,s.actionTaken]);
+    downloadFile('TrainVision_timetable_'+serviceDate+'.csv',[columns,...rows].map(row=>row.map(escapeCsv).join(',')).join('\n'));
   };
 
   // Filtered rows in results
@@ -253,8 +161,9 @@ export function ImportAnalyseModal({ open, onClose }: Props) {
     return analysisResult.stops;
   }, [analysisResult, activeFilter]);
 
+  if (!open) return null;
   return (
-    <div
+    <ModalFrame open={open} onClose={onClose} label="Import and analyse timetable"><div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5"
       role="dialog"
       aria-modal="true"
@@ -604,7 +513,12 @@ export function ImportAnalyseModal({ open, onClose }: Props) {
           )}
 
           {/* STEP 3: RESULTS, BEFORE/AFTER AUDIT & APPLY */}
-          {step === 'results' && analysisResult && (
+           {step === 'results' && <div className="import-approval">
+ <label>Service date (IST)<input type="date" value={serviceDate} onChange={e=>{setServiceDate(e.target.value);setApproved(false);}}/></label>
+ <label className="check-row"><input type="checkbox" checked={approved} onChange={e=>setApproved(e.target.checked)}/><span>I reviewed the proposal and understand it replaces this session's timetable.</span></label>
+ <p className="muted">{feed.isLiveBackend?'Import is disabled for a connected backend.':prefs.role==='viewer'?'Viewer mode is read-only.':analysisResult?.conflictsAfter.length?'Resolve the remaining conflicts before importing.':'Times use the selected date in IST. This is a local simulation import.'}</p>
+ </div>}
+ {step === 'results' && analysisResult && (
             <div className="space-y-6">
               {/* Top 3 KPI Hero Metrics */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -722,7 +636,7 @@ export function ImportAnalyseModal({ open, onClose }: Props) {
                     <span>Export CSV</span>
                   </button>
                   <button
-                    onClick={handleApplyToCorridor}
+                    onClick={handleApplyToCorridor} disabled={!approved || !serviceDate || prefs.role==='viewer' || feed.isLiveBackend || !!analysisResult?.conflictsAfter.length}
                     className="text-xs px-4 py-1.5 rounded-lg font-bold text-white flex items-center gap-1.5 shadow-lg transition-transform hover:scale-105 active:scale-95"
                     style={{
                       background: 'linear-gradient(135deg, #ff8c42 0%, #f07a2e 100%)',
@@ -819,6 +733,6 @@ export function ImportAnalyseModal({ open, onClose }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </div></ModalFrame>
   );
 }

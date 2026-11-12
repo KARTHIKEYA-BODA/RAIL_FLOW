@@ -56,6 +56,10 @@ export interface ValidationReport {
 }
 
 export interface EngineStopResult {
+  scheduledArrivalMin: number;
+  scheduledDepartureMin: number;
+  proposedArrivalMin: number;
+  proposedDepartureMin: number;
   rowId: string;
   trainId: string;
   trainType: TrainType;
@@ -114,9 +118,9 @@ export interface TimetableAnalysisResult {
 }
 
 export const KNOWN_STATIONS: Record<string, { name: string; platforms: number[] }> = {
-  HYB: { name: 'Hyderabad Deccan', platforms: [1, 2, 3, 4, 5, 6] },
-  SC: { name: 'Secunderabad Jn', platforms: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] },
-  KCG: { name: 'Kacheguda', platforms: [1, 2, 3, 4, 5] },
+  HYB: { name: 'Hyderabad Deccan', platforms: [1, 2, 3, 4] },
+  SC: { name: 'Secunderabad Jn', platforms: [1, 2, 3, 4, 5, 6] },
+  KCG: { name: 'Kacheguda', platforms: [1, 2, 3] },
   MJF: { name: 'Malkajgiri Jn', platforms: [1, 2, 3] },
   CHZ: { name: 'Charlapalli', platforms: [1, 2, 3, 4] },
   BMT: { name: 'Begumpet', platforms: [1, 2] },
@@ -126,19 +130,14 @@ export const DEFAULT_HEADWAY_MIN = 5;
 
 // Helper: parse HH:MM into minutes from midnight
 export function timeToMinutes(timeStr: string): number {
-  if (!timeStr) return 0;
-  const cleaned = timeStr.trim();
-  const parts = cleaned.split(':');
-  if (parts.length < 2) return 0;
-  const h = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  if (isNaN(h) || isNaN(m)) return 0;
-  return h * 60 + m;
+  const match = /^(\d{1,2}):([0-5]\d)$/.exec(String(timeStr).trim());
+  return match && Number(match[1]) < 24 ? Number(match[1])*60+Number(match[2]) : NaN;
 }
 
 // Helper: convert minutes from midnight to HH:MM format
 export function minutesToTime(mins: number): string {
-  const norm = ((mins % 1440) + 1440) % 1440;
+  if (!Number.isFinite(mins)) return '--:--';
+  const norm = ((Math.round(mins) % 1440) + 1440) % 1440;
   const h = Math.floor(norm / 60);
   const m = norm % 60;
   return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
@@ -155,7 +154,7 @@ export function autoDetectColumns(headers: string[]): ColumnMapping {
 
   headers.forEach((h) => {
     const c = clean(h);
-    if (!mapping.trainId && (c.includes('trainno') || c.includes('trainid') || c.includes('train') || c === 'tno' || c === 'id')) {
+    if (!mapping.trainId && (c.includes('trainno') || c.includes('trainid') || c === 'train' || c === 'tno' || c === 'id')) {
       mapping.trainId = h;
     } else if (!mapping.stationId && (c.includes('station') || c.includes('stn') || c === 'code' || c === 'stop')) {
       mapping.stationId = h;
@@ -169,7 +168,7 @@ export function autoDetectColumns(headers: string[]): ColumnMapping {
       mapping.trainType = h;
     } else if (!mapping.priority && (c.includes('prio') || c === 'p')) {
       mapping.priority = h;
-    } else if (!mapping.reportedDelay && (c.includes('delay') || c.includes('lateness') || c === 'late')) {
+    } else if (!mapping.reportedDelay && (c.includes('delay') || c.includes('lateness') || c.includes('late'))) {
       mapping.reportedDelay = h;
     } else if (!mapping.delayReason && (c.includes('reason') || c.includes('cause') || c.includes('remark'))) {
       mapping.delayReason = h;
@@ -203,7 +202,7 @@ export function validateTimetableRows(
     const pfRaw = mapping.platform ? Number(row[mapping.platform]) : 1;
     const typeRaw = mapping.trainType ? String(row[mapping.trainType] || '').trim() : 'Express';
     const prioRaw = mapping.priority ? Number(row[mapping.priority]) : 0;
-    const delayRaw = mapping.reportedDelay ? Number(row[mapping.reportedDelay]) || 0 : 0;
+    const delayRaw = mapping.reportedDelay ? Number(row[mapping.reportedDelay]) : 0;
     const reasonRaw = mapping.delayReason ? String(row[mapping.delayReason] || '').trim() : '';
     const minDwellRaw = mapping.minDwell ? Number(row[mapping.minDwell]) : undefined;
 
@@ -230,20 +229,21 @@ export function validateTimetableRows(
 
     const knownStation = KNOWN_STATIONS[stationRaw];
     if (!knownStation) {
-      warnings.push({
+      errors.push({
         rowNumber: rowNum,
         trainId,
         field: 'stationId',
-        message: `Station "${stationRaw}" not in Hyderabad triangle corridor core list. Platform capacity defaulted to 4.`,
-        severity: 'warning',
+        message: `Station "${stationRaw}" not in Hyderabad triangle corridor core list. Choose a supported station.`,
+        severity: 'error',
         value: stationRaw,
       });
     }
 
+    if (!knownStation) return;
     const arrMins = timeToMinutes(arrRaw);
     const depMins = timeToMinutes(depRaw || arrRaw);
 
-    if (!arrRaw || (arrMins === 0 && !arrRaw.includes('00:00'))) {
+    if (!Number.isFinite(arrMins)) {
       errors.push({
         rowNumber: rowNum,
         trainId,
@@ -256,7 +256,7 @@ export function validateTimetableRows(
     }
 
     // Check if arrival is after departure on same calendar day
-    if (depRaw && depMins < arrMins && depMins !== 0) {
+    if (!Number.isFinite(depMins) || depMins < arrMins) {
       errors.push({
         rowNumber: rowNum,
         trainId,
@@ -268,6 +268,18 @@ export function validateTimetableRows(
       return;
     }
 
+    if (!Number.isInteger(pfRaw) || !knownStation.platforms.includes(pfRaw)) {
+      errors.push({rowNumber:rowNum,trainId,field:'platform',message:'Platform must be a whole number within this station capacity.',severity:'error'}); return;
+    }
+    if (!Number.isFinite(delayRaw) || delayRaw < 0 || delayRaw > 1440) {
+      errors.push({rowNumber:rowNum,trainId,field:'reportedDelay',message:'Delay must be between 0 and 1440 minutes.',severity:'error'}); return;
+    }
+    if (mapping.minDwell && (!Number.isFinite(minDwellRaw) || minDwellRaw! < 0 || minDwellRaw! > depMins-arrMins)) {
+      errors.push({rowNumber:rowNum,trainId,field:'minDwell',message:'Minimum dwell must fit within the scheduled stop.',severity:'error'}); return;
+    }
+    if (standardRows.some(r=>r.trainId===trainId && r.stationId===stationRaw)) {
+      errors.push({rowNumber:rowNum,trainId,field:'stationId',message:'Duplicate train and station. Import one service day at a time.',severity:'error'}); return;
+    }
     // Determine normalized train type
     let trainType: TrainType = 'Express';
     const lowerType = typeRaw.toLowerCase();
@@ -286,7 +298,7 @@ export function validateTimetableRows(
     }
 
     const defaultMinDwell = trainType === 'Superfast' || trainType === 'Express' ? 2 : 1;
-    const minDwell = typeof minDwellRaw === 'number' && minDwellRaw >= 0 ? minDwellRaw : defaultMinDwell;
+    const minDwell = typeof minDwellRaw === 'number' && minDwellRaw >= 0 ? minDwellRaw : Math.min(defaultMinDwell,depMins-arrMins);
 
     const platform = !isNaN(pfRaw) && pfRaw > 0 ? pfRaw : 1;
 
@@ -348,7 +360,9 @@ export function detectPlatformConflicts(
 
     for (let i = 0; i < berthStops.length - 1; i++) {
       const a = berthStops[i];
-      const b = berthStops[i + 1];
+      for (let j = i+1; j < berthStops.length; j++) {
+      const b = berthStops[j];
+      if (a.trainId === b.trainId) continue;
 
       // A clear conflict occurs if Train B arrives before Train A departs + headway
       const aClearTime = a.departureMins + headwayMin;
@@ -368,6 +382,7 @@ export function detectPlatformConflicts(
             : `Headway margin violation on Platform ${platform}: gap between ${a.trainId} dep (${minutesToTime(a.departureMins)}) and ${b.trainId} arr (${minutesToTime(b.arrivalMins)}) is ${b.arrivalMins - a.departureMins}m (< ${headwayMin}m safety buffer).`,
           severity: isTrueClash ? 'critical' : 'moderate',
         });
+      }
       }
     }
   });
@@ -391,273 +406,69 @@ export function analyseAndOptimizeTimetable(
   standardRows: StandardTimetableRow[],
   headwayMin: number = DEFAULT_HEADWAY_MIN
 ): TimetableAnalysisResult {
-  // Sort all stops chronologically
-  const sorted = [...standardRows].sort((a, b) => timeToMinutes(a.scheduledArrival) - timeToMinutes(b.scheduledArrival));
-
-  // Compute Initial Baseline Predictions (Before)
-  interface WorkStop {
-    raw: StandardTimetableRow;
-    schedArrMins: number;
-    schedDepMins: number;
-    predArrMins: number;
-    predDepMins: number;
-    optArrMins: number;
-    optDepMins: number;
-    platform: number;
-    proposedPlatform: number;
-    action: string;
-    rootCause: string;
-    dwellSlackRecovered: number;
-  }
-
-  // Track per-train cascading delay across stations
-  const trainDelays = new Map<string, number>();
-
-  const workStops: WorkStop[] = sorted.map((row) => {
-    const sArr = timeToMinutes(row.scheduledArrival);
-    const sDep = timeToMinutes(row.scheduledDeparture);
-    const baseDwell = Math.max(0, sDep - sArr);
-
-    // Initial delay includes direct reported delay plus any accumulated delay
-    const prevDelay = trainDelays.get(row.trainId) || 0;
-    const initialDelay = Math.max(row.reportedDelayMin, prevDelay);
-
-    // Unmitigated baseline (delay without dwell recovery or platform shifting)
-    const unmitigatedArr = sArr + initialDelay;
-    const unmitigatedDep = unmitigatedArr + baseDwell;
-
-    // Dwell slack recovery: can trim down to minDwellMin, never below
-    let dwellSlack = 0;
-    if (initialDelay > 0 && baseDwell > row.minDwellMin) {
-      dwellSlack = Math.min(initialDelay, baseDwell - row.minDwellMin);
-    }
-
-    const predArr = unmitigatedArr;
-    const predDep = unmitigatedDep; // Unmitigated prediction shows the raw consequence before intervention
-
-    const optArr = sArr + initialDelay;
-    const optDep = optArr + (baseDwell - dwellSlack);
-
-    // Propagate remaining delay to future stops of this train
-    const exitDelay = Math.max(0, optDep - sDep);
-    trainDelays.set(row.trainId, exitDelay);
-
-    let cause = 'On time';
-    if (row.reportedDelayMin > 0 && row.delayReason) {
-      cause = `Reported: ${row.delayReason}`;
-    } else if (row.reportedDelayMin > 0) {
-      cause = `Reported delay (${row.reportedDelayMin}m)`;
-    } else if (prevDelay > 0) {
-      cause = `Inherited delay from previous stop (${prevDelay}m)`;
-    }
-
+  if (!Number.isFinite(headwayMin) || headwayMin < 0) throw new Error('Invalid headway.');
+  const sorted = [...standardRows].sort((a,b) => timeToMinutes(a.scheduledArrival)-timeToMinutes(b.scheduledArrival) || a.priority-b.priority || a.rowNumber-b.rowNumber);
+  const previous = new Map<string, { scheduledDeparture:number; predictedDeparture:number; proposedDeparture:number }>();
+  const reservations: {trainId:string;stationId:string;platform:number;arrivalMins:number;departureMins:number}[] = [];
+  const before: typeof reservations = [];
+  let recovered = 0, reassigned = 0, held = 0;
+  const stops: EngineStopResult[] = sorted.map(row => {
+    const scheduledArrivalMin = timeToMinutes(row.scheduledArrival), scheduledDepartureMin = timeToMinutes(row.scheduledDeparture);
+    const dwell = scheduledDepartureMin-scheduledArrivalMin;
+    if (!Number.isFinite(scheduledArrivalMin+scheduledDepartureMin) || dwell < 0) throw new Error('The timetable contains invalid times.');
+    const prior = previous.get(row.trainId);
+    const travel = prior ? scheduledArrivalMin-prior.scheduledDeparture : 0;
+    if (travel < 0) throw new Error(row.trainId + ' has overlapping stops. Correct the trip times.');
+    const predictedArrival = Math.max(scheduledArrivalMin+row.reportedDelayMin, prior ? prior.predictedDeparture+travel : 0);
+    const predictedDeparture = predictedArrival+dwell;
+    const ready = Math.max(scheduledArrivalMin+row.reportedDelayMin, prior ? prior.proposedDeparture+travel : 0);
+    const minimumDwell = Math.min(dwell, row.minDwellMin);
+    const departAt = (arrival:number) => Math.max(scheduledDepartureMin,arrival+minimumDwell);
+    const platforms = KNOWN_STATIONS[row.stationId]?.platforms;
+    if (!platforms?.includes(row.platform)) throw new Error('Unsupported platform at '+row.stationId);
+    const orderedPlatforms = [row.platform,...platforms.filter(p=>p!==row.platform)];
+    const choices = orderedPlatforms.map(platform=>{
+      let arrival=ready;
+      const booked = reservations.filter(r=>r.stationId===row.stationId&&r.platform===platform).sort((a,b)=>a.arrivalMins-b.arrivalMins);
+      for(const booking of booked) {
+        if(departAt(arrival)+headwayMin <= booking.arrivalMins) break;
+        if(arrival < booking.departureMins+headwayMin) arrival=booking.departureMins+headwayMin;
+      }
+      return {platform,arrival,departure:departAt(arrival)};
+    });
+    choices.sort((a,b)=>a.departure-b.departure || a.arrival-b.arrival || Number(b.platform===row.platform)-Number(a.platform===row.platform));
+    const choice=choices[0];
+    const wait=choice.arrival-ready, slack=Math.max(0,dwell-(choice.departure-choice.arrival));
+    recovered+=slack; if(choice.platform!==row.platform)reassigned++;if(wait>0)held++;
+    const actions = [choice.platform!==row.platform?'Reassigned PF '+row.platform+' to PF '+choice.platform:'Retained PF '+row.platform];
+    if(wait>0)actions.push('held '+wait+'m for platform clearance');
+    if(slack>0)actions.push('recovered '+slack+'m of dwell slack');
+    before.push({trainId:row.trainId,stationId:row.stationId,platform:row.platform,arrivalMins:predictedArrival,departureMins:predictedDeparture});
+    reservations.push({trainId:row.trainId,stationId:row.stationId,platform:choice.platform,arrivalMins:choice.arrival,departureMins:choice.departure});
+    previous.set(row.trainId,{scheduledDeparture:scheduledDepartureMin,predictedDeparture,proposedDeparture:choice.departure});
+    const delayBefore=Math.max(0,predictedDeparture-scheduledDepartureMin),delayAfter=Math.max(0,choice.departure-scheduledDepartureMin);
     return {
-      raw: row,
-      schedArrMins: sArr,
-      schedDepMins: sDep,
-      predArrMins: predArr,
-      predDepMins: predDep,
-      optArrMins: optArr,
-      optDepMins: optDep,
-      platform: row.platform,
-      proposedPlatform: row.platform,
-      action: dwellSlack > 0 ? `Recovered ${dwellSlack}m via dwell compression` : 'Maintain scheduled path',
-      rootCause: cause,
-      dwellSlackRecovered: dwellSlack,
+      rowId:row.id,trainId:row.trainId,trainType:row.trainType,priority:row.priority,stationId:row.stationId,
+      platformBefore:row.platform,platformAfter:choice.platform,scheduledArrivalMin,scheduledDepartureMin,
+      proposedArrivalMin:choice.arrival,proposedDepartureMin:choice.departure,
+      schedArrival:row.scheduledArrival,schedDeparture:row.scheduledDeparture,
+      predictedArrival:minutesToTime(predictedArrival),predictedDeparture:minutesToTime(predictedDeparture),
+      proposedArrival:minutesToTime(choice.arrival),proposedDeparture:minutesToTime(choice.departure),
+      delayBeforeMin:delayBefore,delayAfterMin:delayAfter,delaySavedMin:delayBefore-delayAfter,
+      rootCause:row.delayReason|| (predictedArrival>scheduledArrivalMin?'Delay carried from previous stop':'Scheduled path'),
+      actionTaken:actions.join('; '),isConflictParticipant:false,
     };
   });
-
-  // Conflicts Before Optimization
-  const conflictsBefore = detectPlatformConflicts(
-    workStops.map((w) => ({
-      trainId: w.raw.trainId,
-      stationId: w.raw.stationId,
-      platform: w.platform,
-      arrivalMins: w.predArrMins,
-      departureMins: w.predDepMins,
-    })),
-    headwayMin
-  );
-
-  // Group workstops by station for multi-platform allocation
-  const stationStops = new Map<string, WorkStop[]>();
-  workStops.forEach((w) => {
-    if (!stationStops.has(w.raw.stationId)) stationStops.set(w.raw.stationId, []);
-    stationStops.get(w.raw.stationId)!.push(w);
-  });
-
-  let reassignmentsCount = 0;
-  let reordersCount = 0;
-  let totalDwellSlack = 0;
-
-  // Optimize per station
-  stationStops.forEach((stops, stationId) => {
-    const stationConfig = KNOWN_STATIONS[stationId] || { name: stationId, platforms: [1, 2, 3, 4] };
-    const availablePlatforms = stationConfig.platforms;
-
-    // Iterative resolution of overlaps
-    let maxIterations = 20;
-    while (maxIterations-- > 0) {
-      const currentConflicts = detectPlatformConflicts(
-        stops.map((s) => ({
-          trainId: s.raw.trainId,
-          stationId: s.raw.stationId,
-          platform: s.proposedPlatform,
-          arrivalMins: s.optArrMins,
-          departureMins: s.optDepMins,
-        })),
-        headwayMin
-      );
-
-      if (currentConflicts.length === 0) break;
-
-      const c = currentConflicts[0];
-      const stopA = stops.find((s) => s.raw.trainId === c.trainA && s.proposedPlatform === c.platform)!;
-      const stopB = stops.find((s) => s.raw.trainId === c.trainB && s.proposedPlatform === c.platform)!;
-
-      if (!stopA || !stopB) break;
-
-      // Determine lower vs higher priority train
-      const aPrio = stopA.raw.priority;
-      const bPrio = stopB.raw.priority;
-
-      // Target to modify: prefer moving or delaying the lower priority train (larger number = lower priority)
-      const target = bPrio >= aPrio ? stopB : stopA;
-      const anchor = target === stopB ? stopA : stopB;
-
-      // Option 1: Try reassignment to another free platform
-      let reassigned = false;
-      for (const pf of availablePlatforms) {
-        if (pf === target.proposedPlatform) continue;
-
-        // Check if platform `pf` has sufficient gap
-        const otherStopsOnPf = stops.filter(
-          (s) => s.proposedPlatform === pf && s.raw.trainId !== target.raw.trainId
-        );
-        const hasClash = otherStopsOnPf.some(
-          (s) => Math.max(target.optArrMins, s.optArrMins) < Math.min(target.optDepMins, s.optDepMins) + headwayMin
-        );
-
-        if (!hasClash) {
-          const oldPf = target.proposedPlatform;
-          target.proposedPlatform = pf;
-          target.action = `Reassigned from PF ${oldPf} to PF ${pf} (0 extra delay)`;
-          if (target.rootCause === 'On time') {
-            target.rootCause = `Avoided headway conflict with ${anchor.raw.trainId} on PF ${oldPf}`;
-          }
-          reassignmentsCount++;
-          reassigned = true;
-          break;
-        }
-      }
-
-      if (reassigned) continue;
-
-      // Option 2: Dwell trimming if target has dwell headroom
-      const currentDwell = target.optDepMins - target.optArrMins;
-      if (currentDwell > target.raw.minDwellMin && target.optArrMins < anchor.optDepMins + headwayMin) {
-        const canTrim = currentDwell - target.raw.minDwellMin;
-        target.optDepMins -= canTrim;
-        totalDwellSlack += canTrim;
-        target.action = `Trimmed dwell by ${canTrim}m to minimum (${target.raw.minDwellMin}m)`;
-        continue;
-      }
-
-      // Option 3: Hold lower-priority train until headway is clear
-      const neededClearTime = anchor.optDepMins + headwayMin;
-      const pushDelay = neededClearTime - target.optArrMins;
-      if (pushDelay > 0) {
-        target.optArrMins = neededClearTime;
-        target.optDepMins = target.optArrMins + Math.max(target.raw.minDwellMin, currentDwell);
-        target.action = `Held ${pushDelay}m for priority train ${anchor.raw.trainId} to clear headway`;
-        target.rootCause = `Priority precedence: ${anchor.raw.trainType} (#${anchor.raw.trainId}) given path`;
-        reordersCount++;
-      } else {
-        break; // Guard against infinite loop
-      }
-    }
-  });
-
-  // Conflicts After Optimization
-  const conflictsAfter = detectPlatformConflicts(
-    workStops.map((w) => ({
-      trainId: w.raw.trainId,
-      stationId: w.raw.stationId,
-      platform: w.proposedPlatform,
-      arrivalMins: w.optArrMins,
-      departureMins: w.optDepMins,
-    })),
-    headwayMin
-  );
-
-  // Generate Per-Stop Results
-  const stops: EngineStopResult[] = workStops.map((w) => {
-    const delayBefore = Math.max(0, w.predDepMins - w.schedDepMins);
-    const delayAfter = Math.max(0, w.optDepMins - w.schedDepMins);
-    const delaySaved = Math.max(0, delayBefore - delayAfter);
-
-    const isInConflictBefore = conflictsBefore.some(
-      (c) => c.trainA === w.raw.trainId || c.trainB === w.raw.trainId
-    );
-
-    return {
-      rowId: w.raw.id,
-      trainId: w.raw.trainId,
-      trainType: w.raw.trainType,
-      priority: w.raw.priority,
-      stationId: w.raw.stationId,
-      platformBefore: w.platform,
-      platformAfter: w.proposedPlatform,
-      schedArrival: w.raw.scheduledArrival,
-      schedDeparture: w.raw.scheduledDeparture,
-      predictedArrival: minutesToTime(w.predArrMins),
-      predictedDeparture: minutesToTime(w.predDepMins),
-      proposedArrival: minutesToTime(w.optArrMins),
-      proposedDeparture: minutesToTime(w.optDepMins),
-      delayBeforeMin: delayBefore,
-      delayAfterMin: delayAfter,
-      delaySavedMin: delaySaved,
-      rootCause: w.rootCause,
-      actionTaken: w.action,
-      isConflictParticipant: isInConflictBefore,
-    };
-  });
-
-  const totalDelayBefore = stops.reduce((sum, s) => sum + s.delayBeforeMin, 0);
-  const totalDelayAfter = stops.reduce((sum, s) => sum + s.delayAfterMin, 0);
-  const totalDelaySaved = Math.max(0, totalDelayBefore - totalDelayAfter);
-
-  const onTimeBeforeCount = stops.filter((s) => s.delayBeforeMin <= 2).length;
-  const onTimeAfterCount = stops.filter((s) => s.delayAfterMin <= 2).length;
-  const totalStops = Math.max(1, stops.length);
-
-  const onTimePctBefore = Math.round((onTimeBeforeCount / totalStops) * 1000) / 10;
-  const onTimePctAfter = Math.round((onTimeAfterCount / totalStops) * 1000) / 10;
-
-  return {
-    stops,
-    conflictsBefore,
-    conflictsAfter,
-    metrics: {
-      totalDelayBeforeMin: totalDelayBefore,
-      totalDelayAfterMin: totalDelayAfter,
-      delaySavedMin: totalDelaySaved,
-      conflictsBeforeCount: conflictsBefore.length,
-      conflictsAfterCount: conflictsAfter.length,
-      onTimePctBefore,
-      onTimePctAfter,
-      dwellSlackRecoveredMin: totalDwellSlack,
-      platformReassignmentsCount: reassignmentsCount,
-      trainsReorderedCount: reordersCount,
-    },
-    assumptions: {
-      headwayBufferMin: headwayMin,
-      minDwellExpressMin: 2,
-      minDwellLocalMin: 1,
-      stationsModeled: Object.keys(KNOWN_STATIONS),
-    },
-  };
+  const conflictsBefore=detectPlatformConflicts(before,headwayMin),conflictsAfter=detectPlatformConflicts(reservations,headwayMin);
+  for(const stop of stops)stop.isConflictParticipant=conflictsBefore.some(c=>c.stationId===stop.stationId&&(c.trainA===stop.trainId||c.trainB===stop.trainId));
+  const totalBefore=stops.reduce((sum,s)=>sum+s.delayBeforeMin,0),totalAfter=stops.reduce((sum,s)=>sum+s.delayAfterMin,0);
+  const onTime=(key:'delayBeforeMin'|'delayAfterMin')=>stops.length?Number((100*stops.filter(s=>s[key]<=2).length/stops.length).toFixed(1)):0;
+  return {stops,conflictsBefore,conflictsAfter,metrics:{totalDelayBeforeMin:totalBefore,totalDelayAfterMin:totalAfter,delaySavedMin:totalBefore-totalAfter,
+    conflictsBeforeCount:conflictsBefore.length,conflictsAfterCount:conflictsAfter.length,onTimePctBefore:onTime('delayBeforeMin'),onTimePctAfter:onTime('delayAfterMin'),
+    dwellSlackRecoveredMin:recovered,platformReassignmentsCount:reassigned,trainsReorderedCount:held},
+    assumptions:{headwayBufferMin:headwayMin,minDwellExpressMin:2,minDwellLocalMin:1,stationsModeled:[...new Set(sorted.map(r=>r.stationId))]}};
 }
+
 
 /**
  * Three Pre-Packaged Demo Datasets for instant judge evaluation
@@ -720,7 +531,7 @@ function generateLargeDatasetCsv(): string {
     const station = stations[i % stations.length];
     const type = types[i % types.length];
     const prio = type === 'Superfast' ? 1 : type === 'Express' ? 2 : type === 'Local' ? 3 : 4;
-    const pf = (i % 4) + 1;
+    const pf = KNOWN_STATIONS[station].platforms[i % KNOWN_STATIONS[station].platforms.length];
     const arr = minutesToTime(timeCursor);
     const dwell = type === 'Freight' ? 15 : type === 'Local' ? 5 : 10;
     const dep = minutesToTime(timeCursor + dwell);

@@ -28,6 +28,9 @@ export interface Station {
   latitude?: number;
   longitude?: number;
   is_junction?: boolean;
+  passing_loops?: number;
+  km?: number;
+  total_capacity?: number;
 }
 
 export interface LogEntry {
@@ -85,4 +88,56 @@ export interface Recommendation {
     affected_trains: string[];
     total_delay_change: number;
   };
+}
+
+export interface Incident {
+  id: string;
+  station: string;
+  type: 'late_train' | 'loco_failure' | 'signal_failure' | 'speed_restriction' | 'platform_blocked' | 'safety_incident' | 'other';
+  train_ids: string[];
+  platform?: number | null;
+  started_at: string;
+  est_duration_min: number;
+  note?: string | null;
+  status: 'open' | 'resolved';
+  reported_by?: string;
+  is_pending_sync?: boolean;
+}
+
+export interface StationArrivalRecommendation {
+  id: string;
+  action_type: string;
+  title: string;
+  reason?: string;
+  savings_text: string;
+  can_station_master_accept: boolean;
+  button_label: string;
+}
+
+export interface StationArrival {
+  train_id: string;
+  train_name: string;
+  category: 'Express' | 'Suburban' | 'Freight' | 'Passenger' | string;
+  is_synthetic: boolean;
+  scheduled_arrival: string;
+  expected_arrival: string;
+  scheduled_departure: string;
+  expected_departure: string;
+  delay_minutes: number;
+  assigned_platform: number;
+  cause_source: 'reported' | 'inferred' | 'unknown' | null;
+  cause_text: string;
+  recommendation?: StationArrivalRecommendation | null;
+}
+
+export interface StationArrivalsResponse {
+  station_id: string;
+  station_name: string;
+  platforms_count: number;
+  window_minutes: number;
+  arrivals: StationArrival[];
+  active_incidents: Incident[];
+  blocked_platforms: number[];
+  safety_alert?: string | null;
+  timestamp: string;
 }

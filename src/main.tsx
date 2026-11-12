@@ -1,22 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
-import { WorkspacePreferencesProvider } from './context/WorkspacePreferences'
 import './index.css'
-import AppWithDashboards from './AppWithDashboards.tsx'
-import { DashboardShellProvider } from './context/DashboardShellContext.tsx'
-import { OperationsFeedProvider } from './context/OperationsFeedContext.tsx'
-import { SelectionProvider } from './context/SelectionContext.tsx'
+import { ControllerWorkspace } from './components/operations/ControllerWorkspace.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <WorkspacePreferencesProvider>
-    <DashboardShellProvider>
-      <OperationsFeedProvider>
-        <SelectionProvider>
-          <AppWithDashboards />
-        </SelectionProvider>
-      </OperationsFeedProvider>
+      <ControllerWorkspace />
       <Toaster
         theme="dark"
         position="bottom-right"
@@ -33,7 +23,5 @@ createRoot(document.getElementById('root')!).render(
           },
         }}
       />
-    </DashboardShellProvider>
-    </WorkspacePreferencesProvider>
   </StrictMode>,
 )

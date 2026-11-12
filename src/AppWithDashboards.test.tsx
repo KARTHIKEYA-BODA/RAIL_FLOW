@@ -48,7 +48,6 @@ describe('AppWithDashboards', () => {
     expect(screen.getByRole('button', { name: 'Operations' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Simulation' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Analytics' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'AI Assistant' })).toBeInTheDocument();
   });
 
   it('includes skip link and command center control', { timeout: 15000 }, () => {

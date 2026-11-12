@@ -1,19 +1,19 @@
 import { createMockSchedule, createMockTrains, MOCK_STATIONS } from './mockRailwayData';
 import { changeSchedule, findPlatformConflicts } from './localSchedule';
-import type { ActiveDelay, ConflictItem, Recommendation, ScheduleEntry } from '../types/railway';
+import type { ActiveDelay, ConflictItem, Recommendation, ScheduleEntry, Station } from '../types/railway';
 
 export type DemoKind = 'normal' | 'signal' | 'rain' | 'platform';
-export function scenarioRecommendations(schedule: ScheduleEntry[], conflicts: ConflictItem[], blocked: string[] = []): Recommendation[] {
+export function scenarioRecommendations(schedule: ScheduleEntry[], conflicts: ConflictItem[], blocked: string[] = [], stations: Station[] = MOCK_STATIONS): Recommendation[] {
   const options: Recommendation[] = [];
   for (const conflict of conflicts) {
     const trainId = conflict.trains_involved?.[0];
     const entry = schedule.find(e => e.train_id === trainId && e.station_id === conflict.station_id && (!conflict.platform || e.assigned_platform === conflict.platform));
     if (!entry) continue;
-    const platformCount = MOCK_STATIONS.find(s => s.id === entry.station_id)?.platforms ?? 0;
+    const platformCount = stations.find(s => s.id === entry.station_id)?.platforms ?? 0;
     for (let p = 1; p <= platformCount; p++) {
       if (p === entry.assigned_platform || blocked.includes(entry.station_id + '-' + p)) continue;
       const candidate: Recommendation = { id:'move-' + entry.train_id + '-' + entry.station_id + '-' + p, action_type:'change_platform', train_id:entry.train_id, station_id:entry.station_id, new_platform:p, description:'Move ' + entry.train_id + ' to platform ' + p + ' at ' + entry.station_id, cost_benefit:{ conflicts_resolved:1, delay_reduction:0, cost_score:100 }, impact:{ affected_trains:conflict.trains_involved || [], total_delay_change:0 } };
-      const proposed = changeSchedule(schedule,candidate,MOCK_STATIONS);
+      const proposed = changeSchedule(schedule,candidate,stations);
       if (!findPlatformConflicts(proposed).some(c => c.station_id === entry.station_id && c.trains_involved?.includes(entry.train_id))) { options.push(candidate); break; }
     }
     if (conflict.type === 'platform_closed') continue;
@@ -22,7 +22,7 @@ export function scenarioRecommendations(schedule: ScheduleEntry[], conflicts: Co
     const delay = Math.max(1, Math.ceil((Date.parse(entry.actual_departure) + 5 * 60000 - Date.parse(following.actual_arrival)) / 60000));
     options.push({ id:'hold-' + following.train_id + '-' + following.station_id, action_type:'delay_train', train_id:following.train_id, station_id:following.station_id, delay_minutes:delay, description:'Hold ' + following.train_id + ' for ' + delay + ' min before platform ' + following.assigned_platform, cost_benefit:{ conflicts_resolved:1, delay_reduction:0, cost_score:Math.max(0,100-delay*2) }, impact:{ affected_trains:[following.train_id], total_delay_change:delay } });
   }
-  return options;
+  return [...new Map(options.map(option=>[option.id,option])).values()];
 }
 export function detectIssues(schedule: ScheduleEntry[], blocked: string[] = []): ConflictItem[] {
   return [...findPlatformConflicts(schedule), ...schedule.filter(e => blocked.includes(e.station_id + '-' + e.assigned_platform) && Date.parse(e.actual_departure) >= Date.now()).map(e => ({

@@ -1,0 +1,533 @@
+{
+  "benchmark_version": 2,
+  "source_fingerprint": "5728904cde391a7b2a5429c717dac8a4a8fd759c152562a724eb331e68d4dc96",
+  "timestamp": "2026-11-12 12:52:39",
+  "corridor": "Secunderabad - Wadiaram 70km Corridor",
+  "trains_per_instance": 30,
+  "seeds_evaluated": [
+    42,
+    101
+  ],
+  "scenarios": {
+    "normal": {
+      "name": "Nominal Timetable",
+      "runs": [
+        {
+          "seed": 42,
+          "FCFS": {
+            "policy": "FCFS",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 358.43,
+            "total_unweighted_delay_min": 180.75,
+            "avg_delay_min": 6.03,
+            "trains_delayed_over_5m": 17,
+            "max_delay_min": 17.93,
+            "cascade_count": 20,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "PRIORITY": {
+            "policy": "PRIORITY",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 358.43,
+            "total_unweighted_delay_min": 180.75,
+            "avg_delay_min": 6.03,
+            "trains_delayed_over_5m": 17,
+            "max_delay_min": 17.93,
+            "cascade_count": 20,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "SOLVER": {
+            "policy": "SOLVER",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 358.43,
+            "total_unweighted_delay_min": 180.75,
+            "avg_delay_min": 6.03,
+            "trains_delayed_over_5m": 17,
+            "max_delay_min": 17.93,
+            "cascade_count": 20,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 3126.7,
+            "solver_status": "FEASIBLE"
+          }
+        },
+        {
+          "seed": 101,
+          "FCFS": {
+            "policy": "FCFS",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 257.74,
+            "total_unweighted_delay_min": 133.47,
+            "avg_delay_min": 4.45,
+            "trains_delayed_over_5m": 12,
+            "max_delay_min": 17.98,
+            "cascade_count": 16,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "PRIORITY": {
+            "policy": "PRIORITY",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 257.74,
+            "total_unweighted_delay_min": 133.47,
+            "avg_delay_min": 4.45,
+            "trains_delayed_over_5m": 12,
+            "max_delay_min": 17.98,
+            "cascade_count": 16,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "SOLVER": {
+            "policy": "SOLVER",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 243.77,
+            "total_unweighted_delay_min": 127.32,
+            "avg_delay_min": 4.24,
+            "trains_delayed_over_5m": 12,
+            "max_delay_min": 14.97,
+            "cascade_count": 15,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 3075.6,
+            "solver_status": "FEASIBLE"
+          }
+        }
+      ],
+      "averages": {
+        "FCFS": {
+          "weighted_delay_min": 308.09,
+          "avg_delay_min": 5.24,
+          "delayed_over_5m": 14.5,
+          "max_delay_min": 17.95,
+          "cascade_count": 18,
+          "violations": 0,
+          "solve_time_ms": 0.0
+        },
+        "PRIORITY": {
+          "weighted_delay_min": 308.09,
+          "avg_delay_min": 5.24,
+          "delayed_over_5m": 14.5,
+          "max_delay_min": 17.95,
+          "cascade_count": 18,
+          "violations": 0,
+          "solve_time_ms": 0.0
+        },
+        "SOLVER": {
+          "weighted_delay_min": 301.1,
+          "avg_delay_min": 5.13,
+          "delayed_over_5m": 14.5,
+          "max_delay_min": 16.45,
+          "cascade_count": 17.5,
+          "violations": 0,
+          "solve_time_ms": 3101.15
+        }
+      }
+    },
+    "late_express": {
+      "name": "Late Priority Express (+15m)",
+      "runs": [
+        {
+          "seed": 42,
+          "FCFS": {
+            "policy": "FCFS",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 541.42,
+            "total_unweighted_delay_min": 249.92,
+            "avg_delay_min": 8.33,
+            "trains_delayed_over_5m": 19,
+            "max_delay_min": 42.2,
+            "cascade_count": 20,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "PRIORITY": {
+            "policy": "PRIORITY",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 460.07,
+            "total_unweighted_delay_min": 224.97,
+            "avg_delay_min": 7.5,
+            "trains_delayed_over_5m": 17,
+            "max_delay_min": 27.7,
+            "cascade_count": 19,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "SOLVER": {
+            "policy": "SOLVER",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 459.43,
+            "total_unweighted_delay_min": 224.53,
+            "avg_delay_min": 7.48,
+            "trains_delayed_over_5m": 17,
+            "max_delay_min": 27.7,
+            "cascade_count": 19,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 3080.2,
+            "solver_status": "FEASIBLE"
+          }
+        },
+        {
+          "seed": 101,
+          "FCFS": {
+            "policy": "FCFS",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 319.89,
+            "total_unweighted_delay_min": 141.95,
+            "avg_delay_min": 4.73,
+            "trains_delayed_over_5m": 10,
+            "max_delay_min": 25.3,
+            "cascade_count": 15,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "PRIORITY": {
+            "policy": "PRIORITY",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 319.89,
+            "total_unweighted_delay_min": 141.95,
+            "avg_delay_min": 4.73,
+            "trains_delayed_over_5m": 10,
+            "max_delay_min": 25.3,
+            "cascade_count": 15,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "SOLVER": {
+            "policy": "SOLVER",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 307.37,
+            "total_unweighted_delay_min": 136.43,
+            "avg_delay_min": 4.55,
+            "trains_delayed_over_5m": 10,
+            "max_delay_min": 25.3,
+            "cascade_count": 15,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 3084.4,
+            "solver_status": "FEASIBLE"
+          }
+        }
+      ],
+      "averages": {
+        "FCFS": {
+          "weighted_delay_min": 430.65,
+          "avg_delay_min": 6.53,
+          "delayed_over_5m": 14.5,
+          "max_delay_min": 33.75,
+          "cascade_count": 17.5,
+          "violations": 0,
+          "solve_time_ms": 0.0
+        },
+        "PRIORITY": {
+          "weighted_delay_min": 389.98,
+          "avg_delay_min": 6.12,
+          "delayed_over_5m": 13.5,
+          "max_delay_min": 26.5,
+          "cascade_count": 17,
+          "violations": 0,
+          "solve_time_ms": 0.0
+        },
+        "SOLVER": {
+          "weighted_delay_min": 383.4,
+          "avg_delay_min": 6.02,
+          "delayed_over_5m": 13.5,
+          "max_delay_min": 26.5,
+          "cascade_count": 17,
+          "violations": 0,
+          "solve_time_ms": 3082.3
+        }
+      }
+    },
+    "loco_failure": {
+      "name": "Locomotive Failure in Single-Track",
+      "runs": [
+        {
+          "seed": 42,
+          "FCFS": {
+            "policy": "FCFS",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 378.21,
+            "total_unweighted_delay_min": 200.53,
+            "avg_delay_min": 6.68,
+            "trains_delayed_over_5m": 18,
+            "max_delay_min": 19.7,
+            "cascade_count": 21,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "PRIORITY": {
+            "policy": "PRIORITY",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 378.21,
+            "total_unweighted_delay_min": 200.53,
+            "avg_delay_min": 6.68,
+            "trains_delayed_over_5m": 18,
+            "max_delay_min": 19.7,
+            "cascade_count": 21,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "SOLVER": {
+            "policy": "SOLVER",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 387.53,
+            "total_unweighted_delay_min": 205.57,
+            "avg_delay_min": 6.85,
+            "trains_delayed_over_5m": 16,
+            "max_delay_min": 28.0,
+            "cascade_count": 21,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 3081.0,
+            "solver_status": "FEASIBLE"
+          }
+        },
+        {
+          "seed": 101,
+          "FCFS": {
+            "policy": "FCFS",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 293.77,
+            "total_unweighted_delay_min": 164.77,
+            "avg_delay_min": 5.49,
+            "trains_delayed_over_5m": 14,
+            "max_delay_min": 19.57,
+            "cascade_count": 18,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "PRIORITY": {
+            "policy": "PRIORITY",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 293.77,
+            "total_unweighted_delay_min": 164.77,
+            "avg_delay_min": 5.49,
+            "trains_delayed_over_5m": 14,
+            "max_delay_min": 19.57,
+            "cascade_count": 18,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "SOLVER": {
+            "policy": "SOLVER",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 281.25,
+            "total_unweighted_delay_min": 159.25,
+            "avg_delay_min": 5.31,
+            "trains_delayed_over_5m": 14,
+            "max_delay_min": 19.57,
+            "cascade_count": 18,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 3190.8,
+            "solver_status": "FEASIBLE"
+          }
+        }
+      ],
+      "averages": {
+        "FCFS": {
+          "weighted_delay_min": 335.99,
+          "avg_delay_min": 6.08,
+          "delayed_over_5m": 16,
+          "max_delay_min": 19.63,
+          "cascade_count": 19.5,
+          "violations": 0,
+          "solve_time_ms": 0.0
+        },
+        "PRIORITY": {
+          "weighted_delay_min": 335.99,
+          "avg_delay_min": 6.08,
+          "delayed_over_5m": 16,
+          "max_delay_min": 19.63,
+          "cascade_count": 19.5,
+          "violations": 0,
+          "solve_time_ms": 0.0
+        },
+        "SOLVER": {
+          "weighted_delay_min": 334.39,
+          "avg_delay_min": 6.08,
+          "delayed_over_5m": 15,
+          "max_delay_min": 23.79,
+          "cascade_count": 19.5,
+          "violations": 0,
+          "solve_time_ms": 3135.9
+        }
+      }
+    },
+    "signal_failure": {
+      "name": "Signal Failure & TSR (25 km/h)",
+      "runs": [
+        {
+          "seed": 42,
+          "FCFS": {
+            "policy": "FCFS",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 410.81,
+            "total_unweighted_delay_min": 206.4,
+            "avg_delay_min": 6.88,
+            "trains_delayed_over_5m": 18,
+            "max_delay_min": 23.67,
+            "cascade_count": 21,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "PRIORITY": {
+            "policy": "PRIORITY",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 410.81,
+            "total_unweighted_delay_min": 206.4,
+            "avg_delay_min": 6.88,
+            "trains_delayed_over_5m": 18,
+            "max_delay_min": 23.67,
+            "cascade_count": 21,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "SOLVER": {
+            "policy": "SOLVER",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 420.13,
+            "total_unweighted_delay_min": 211.43,
+            "avg_delay_min": 7.05,
+            "trains_delayed_over_5m": 16,
+            "max_delay_min": 28.0,
+            "cascade_count": 21,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 3172.6,
+            "solver_status": "FEASIBLE"
+          }
+        },
+        {
+          "seed": 101,
+          "FCFS": {
+            "policy": "FCFS",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 336.04,
+            "total_unweighted_delay_min": 159.57,
+            "avg_delay_min": 5.32,
+            "trains_delayed_over_5m": 13,
+            "max_delay_min": 28.85,
+            "cascade_count": 16,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "PRIORITY": {
+            "policy": "PRIORITY",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 336.04,
+            "total_unweighted_delay_min": 159.57,
+            "avg_delay_min": 5.32,
+            "trains_delayed_over_5m": 13,
+            "max_delay_min": 28.85,
+            "cascade_count": 16,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 0.0,
+            "solver_status": null
+          },
+          "SOLVER": {
+            "policy": "SOLVER",
+            "total_trains": 30,
+            "completed_trains": 30,
+            "total_weighted_delay_min": 323.52,
+            "total_unweighted_delay_min": 154.05,
+            "avg_delay_min": 5.14,
+            "trains_delayed_over_5m": 13,
+            "max_delay_min": 28.85,
+            "cascade_count": 16,
+            "throughput_per_hour": 1.25,
+            "constraint_violations": 0,
+            "solve_time_ms": 3088.2,
+            "solver_status": "FEASIBLE"
+          }
+        }
+      ],
+      "averages": {
+        "FCFS": {
+          "weighted_delay_min": 373.43,
+          "avg_delay_min": 6.1,
+          "delayed_over_5m": 15.5,
+          "max_delay_min": 26.26,
+          "cascade_count": 18.5,
+          "violations": 0,
+          "solve_time_ms": 0.0
+        },
+        "PRIORITY": {
+          "weighted_delay_min": 373.43,
+          "avg_delay_min": 6.1,
+          "delayed_over_5m": 15.5,
+          "max_delay_min": 26.26,
+          "cascade_count": 18.5,
+          "violations": 0,
+          "solve_time_ms": 0.0
+        },
+        "SOLVER": {
+          "weighted_delay_min": 371.82,
+          "avg_delay_min": 6.09,
+          "delayed_over_5m": 14.5,
+          "max_delay_min": 28.43,
+          "cascade_count": 18.5,
+          "violations": 0,
+          "solve_time_ms": 3130.4
+        }
+      }
+    }
+  }
+}
