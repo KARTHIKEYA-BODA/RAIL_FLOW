@@ -1,5 +1,6 @@
 export interface Train {
   id: string;
+  name?: string;
   type?: string;
   priority?: number;
   scheduled_arrival?: string;
@@ -99,7 +100,9 @@ export interface Incident {
   started_at: string;
   est_duration_min: number;
   note?: string | null;
-  status: 'open' | 'resolved';
+  status: 'reported' | 'open' | 'resolved';
+  restored?: boolean;
+  impact_preview?: { status: string; weighted_delay_min: number | null; model_effect: boolean } | null;
   reported_by?: string;
   is_pending_sync?: boolean;
 }

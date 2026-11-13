@@ -15,6 +15,7 @@ import {
 import { createIncident, type IncidentCreatePayload } from '../../lib/operationsApi';
 import type { Incident, StationArrival } from '../../types/railway';
 import { notify } from '../../lib/notify';
+import { config } from '../../config';
 
 interface StationReportSheetProps {
   open: boolean;
@@ -25,6 +26,7 @@ interface StationReportSheetProps {
   availableTrains?: StationArrival[];
   platformsCount?: number;
   onReportSubmitted?: (incident: Incident) => void;
+  trainOptions?: { id: string; name: string }[];
 }
 
 type ReportType = 'late_train' | 'loco_failure' | 'signal_failure' | 'speed_restriction' | 'platform_blocked' | 'safety_incident' | 'other';
@@ -39,12 +41,14 @@ const REPORT_TYPES: { id: ReportType; label: string; icon: ElementType; isSafety
   { id: 'safety_incident', label: 'Safety incident', icon: ShieldAlert, isSafety: true, desc: 'Critical line hazard, trespasser, derailment' },
 ];
 
+const NO_ARRIVALS: StationArrival[] = [];
+
 const DURATION_PRESETS = [
   { label: '10 min', value: 10 },
   { label: '20 min', value: 20 },
   { label: '30 min', value: 30 },
   { label: '60 min', value: 60 },
-  { label: 'Unknown', value: 45 },
+  { label: '45 min', value: 45 },
 ];
 
 export function StationReportSheet({
@@ -53,9 +57,10 @@ export function StationReportSheet({
   stationId = 'SC',
   stationName = 'Secunderabad Jn',
   defaultTrainId,
-  availableTrains = [],
+  availableTrains = NO_ARRIVALS,
   platformsCount = 6,
   onReportSubmitted,
+  trainOptions = [],
 }: StationReportSheetProps) {
   // Step in 3-step sequence (1: Type, 2: Train/Platform, 3: Duration/Note)
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -64,6 +69,9 @@ export function StationReportSheet({
   const [selectedType, setSelectedType] = useState<ReportType>('late_train');
   const [selectedTrain, setSelectedTrain] = useState<string>(defaultTrainId || '');
   const [selectedPlatform, setSelectedPlatform] = useState<number | null>(null);
+  const [blockId, setBlockId] = useState('');
+  const [blocks, setBlocks] = useState<Array<{ id: string; from_station: string; to_station: string }>>([]);
+  useEffect(() => { if (open) fetch(`${config.API_BASE_URL}/corridor/blocks`).then(r => r.ok ? r.json() : []).then(setBlocks).catch(() => setBlocks([])); }, [open]);
   const [durationMin, setDurationMin] = useState<number>(15);
   const [note, setNote] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -83,6 +91,9 @@ export function StationReportSheet({
   // Submission handler
   const handleSubmit = useCallback(async () => {
     if (isSubmitting) return;
+    if ((selectedType === 'late_train' || selectedType === 'loco_failure') && !selectedTrain) { notify.error('Select a simulated train', 'This report needs a train from the simulation.'); return; }
+    if (['loco_failure', 'signal_failure', 'speed_restriction'].includes(selectedType) && !blockId) { notify.error('Select a section', 'Choose the affected simulated block.'); return; }
+    if (selectedType === 'platform_blocked' && !selectedPlatform) { notify.error('Select a platform', 'Choose the blocked simulated platform.'); return; }
     setIsSubmitting(true);
 
     const payload: IncidentCreatePayload = {
@@ -90,6 +101,7 @@ export function StationReportSheet({
       type: selectedType,
       train_ids: selectedTrain ? [selectedTrain] : [],
       platform: selectedPlatform,
+      block_id: blockId || null,
       est_duration_min: durationMin,
       note: note.trim() || undefined,
       reported_by: `Station Master ${stationId}`,
@@ -103,7 +115,7 @@ export function StationReportSheet({
       onReportSubmitted?.(inc);
       notify.success(
         `Incident Logged (${inc.id})`,
-        `${selectedType.replace('_', ' ').toUpperCase()} reported. CP-SAT re-planned in ${res.solve_time_ms || 180} ms.`
+        'Provisional simulation report. Section Control can review and confirm it.'
       );
 
       if (res.safety_alert) {
@@ -111,37 +123,8 @@ export function StationReportSheet({
       }
 
       onClose();
-    } catch (err: any) {
-      // Offline fallback: save locally marked pending
-      const offlineId = `INC-OFFLINE-${Date.now() % 10000}`;
-      const offlineInc: Incident = {
-        id: offlineId,
-        station: stationId,
-        type: selectedType,
-        train_ids: selectedTrain ? [selectedTrain] : [],
-        platform: selectedPlatform,
-        started_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        est_duration_min: durationMin,
-        note: note.trim() || undefined,
-        status: 'open',
-        reported_by: `Station Master ${stationId}`,
-        is_pending_sync: true,
-      };
-
-      try {
-        const stored = JSON.parse(localStorage.getItem('offline_incidents_queue') || '[]');
-        stored.push(offlineInc);
-        localStorage.setItem('offline_incidents_queue', JSON.stringify(stored));
-      } catch {
-        // ignore localStorage errors
-      }
-
-      onReportSubmitted?.(offlineInc);
-      notify.info(
-        'Report Saved Offline (Pending)',
-        'Network unreachable. Report queued locally and will sync once online.'
-      );
-      onClose();
+    } catch (err: unknown) {
+      notify.error('Report not sent', err instanceof Error ? err.message : 'The backend is unavailable. Use official channels for real incidents.');
     } finally {
       setIsSubmitting(false);
     }
@@ -151,6 +134,7 @@ export function StationReportSheet({
     selectedType,
     selectedTrain,
     selectedPlatform,
+    blockId,
     durationMin,
     note,
     onReportSubmitted,
@@ -214,6 +198,8 @@ export function StationReportSheet({
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        <p className="text-xs text-amber-200 mb-4">Simulation only: this report does not notify railway staff. Use official channels for real incidents.</p>
 
         {/* Step Tabs */}
         <div className="grid grid-cols-3 gap-2 mb-6">
@@ -310,6 +296,7 @@ export function StationReportSheet({
               Step 2 · Target Train or Platform
             </label>
 
+            {['loco_failure', 'signal_failure', 'speed_restriction'].includes(selectedType) && <div><label htmlFor="incident-block" className="text-xs text-white/60 mb-1.5 block">Affected simulated section:</label><select id="incident-block" value={blockId} onChange={e => setBlockId(e.target.value)} className="w-full bg-[#17181b] border border-white/10 rounded-xl px-3 py-3 text-white"><option value="">Select a section</option>{blocks.map(b => <option key={b.id} value={b.id}>{b.from_station} – {b.to_station}</option>)}</select><p className="text-xs text-white/50 mt-2">These are modelled sections; a report does not establish a real location.</p></div>}
             {/* Platform chips (P1 - P6) */}
             <div>
               <span className="text-xs text-white/60 mb-1.5 block">Select Platform (if station throat / berth):</span>
@@ -334,6 +321,7 @@ export function StationReportSheet({
               </div>
             </div>
 
+            {availableTrains.length === 0 && trainOptions.length > 0 && <div><label htmlFor="report-train" className="text-xs text-white/60 mb-1.5 block">Select simulated train:</label><select id="report-train" value={selectedTrain} onChange={event => setSelectedTrain(event.target.value)} className="w-full bg-[#17181b] border border-white/10 rounded-xl px-3 py-3 text-white"><option value="">Select a train</option>{trainOptions.map(train => <option value={train.id} key={train.id}>{train.name} ({train.id})</option>)}</select></div>}
             {/* Train Quick-Select Chips */}
             <div>
               <span className="text-xs text-white/60 mb-1.5 block">Or select arriving train:</span>
@@ -411,7 +399,7 @@ export function StationReportSheet({
             <div className="p-3 rounded-xl bg-black/40 border border-white/10 text-[11px] text-white/50 flex items-center justify-between">
               <span>Station: <strong className="text-white">{stationName}</strong></span>
               <span>Reporter: <strong className="text-white">Station Master {stationId}</strong></span>
-              <span>Re-plan: <strong className="text-[#f2b84b]">&lt; 5s Guaranteed</strong></span>
+              <span>Re-plan: <strong className="text-[#f2b84b]">simulated</strong></span>
             </div>
           </div>
         )}

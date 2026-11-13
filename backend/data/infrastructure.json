@@ -1,0 +1,291 @@
+{
+  "corridor_id": "SC_WDR_SUBDIV",
+  "name": "Secunderabad - Wadiaram 70km Corridor",
+  "data_status": "prototype model; all infrastructure values are assumptions",
+  "station_order_modelled": [
+    "SC",
+    "MJF",
+    "BMO",
+    "MED",
+    "MOB",
+    "ME",
+    "WDR"
+  ],
+  "station_order_note": "HYB and KCG are auxiliary modeled stations. This is not a complete physical route survey; omitted intermediate halts are not inferred.",
+  "runtime_method": "length_km / class_speed_kmh * 3600, rounded to nearest second",
+  "runtime_method_note": "These are simplified minimum model runtimes, not timetable-derived or railway-approved running times.",
+  "stations": [
+    {
+      "code": "HYB",
+      "name": "Hyderabad Deccan",
+      "km_from_sc": -9.8,
+      "platforms_modelled": 3,
+      "passing_loops_modelled": 1,
+      "junction_modelled": true,
+      "verification": "assumed"
+    },
+    {
+      "code": "KCG",
+      "name": "Kacheguda",
+      "km_from_sc": -8.4,
+      "platforms_modelled": 2,
+      "passing_loops_modelled": 1,
+      "junction_modelled": true,
+      "verification": "assumed"
+    },
+    {
+      "code": "SC",
+      "name": "Secunderabad Jn",
+      "km_from_sc": 0.0,
+      "platforms_modelled": 6,
+      "passing_loops_modelled": 3,
+      "junction_modelled": true,
+      "verification": "assumed"
+    },
+    {
+      "code": "MJF",
+      "name": "Malkajgiri Jn",
+      "km_from_sc": 6.5,
+      "platforms_modelled": 3,
+      "passing_loops_modelled": 1,
+      "junction_modelled": true,
+      "verification": "assumed"
+    },
+    {
+      "code": "BMO",
+      "name": "Bolarum",
+      "km_from_sc": 14.2,
+      "platforms_modelled": 3,
+      "passing_loops_modelled": 2,
+      "junction_modelled": false,
+      "verification": "assumed"
+    },
+    {
+      "code": "MED",
+      "name": "Medchal",
+      "km_from_sc": 28.0,
+      "platforms_modelled": 2,
+      "passing_loops_modelled": 2,
+      "junction_modelled": false,
+      "verification": "assumed"
+    },
+    {
+      "code": "MOB",
+      "name": "Manoharabad Jn",
+      "km_from_sc": 42.5,
+      "platforms_modelled": 2,
+      "passing_loops_modelled": 2,
+      "junction_modelled": true,
+      "verification": "assumed"
+    },
+    {
+      "code": "ME",
+      "name": "Masaipet",
+      "km_from_sc": 56.8,
+      "platforms_modelled": 2,
+      "passing_loops_modelled": 2,
+      "junction_modelled": false,
+      "verification": "assumed"
+    },
+    {
+      "code": "WDR",
+      "name": "Wadiaram",
+      "km_from_sc": 70.0,
+      "platforms_modelled": 3,
+      "passing_loops_modelled": 2,
+      "junction_modelled": false,
+      "verification": "assumed"
+    }
+  ],
+  "blocks": [
+    {
+      "id": "HYB_SC",
+      "from_station": "HYB",
+      "to_station": "SC",
+      "length_km_modelled": 9.8,
+      "track_type_modelled": "double",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 353,
+        "Suburban": 441,
+        "Passenger": 470,
+        "Freight": 588
+      },
+      "verification": "assumed"
+    },
+    {
+      "id": "SC_KCG",
+      "from_station": "SC",
+      "to_station": "KCG",
+      "length_km_modelled": 8.4,
+      "track_type_modelled": "double",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 302,
+        "Suburban": 378,
+        "Passenger": 403,
+        "Freight": 504
+      },
+      "verification": "assumed"
+    },
+    {
+      "id": "HYB_KCG",
+      "from_station": "HYB",
+      "to_station": "KCG",
+      "length_km_modelled": 4.2,
+      "track_type_modelled": "double",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 151,
+        "Suburban": 189,
+        "Passenger": 202,
+        "Freight": 252
+      },
+      "verification": "assumed"
+    },
+    {
+      "id": "SC_MJF",
+      "from_station": "SC",
+      "to_station": "MJF",
+      "length_km_modelled": 6.5,
+      "track_type_modelled": "double",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 234,
+        "Suburban": 292,
+        "Passenger": 312,
+        "Freight": 390
+      },
+      "verification": "assumed"
+    },
+    {
+      "id": "MJF_BMO",
+      "from_station": "MJF",
+      "to_station": "BMO",
+      "length_km_modelled": 7.7,
+      "track_type_modelled": "double",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 277,
+        "Suburban": 346,
+        "Passenger": 370,
+        "Freight": 462
+      },
+      "verification": "assumed"
+    },
+    {
+      "id": "BMO_MED",
+      "from_station": "BMO",
+      "to_station": "MED",
+      "length_km_modelled": 13.8,
+      "track_type_modelled": "single",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 497,
+        "Suburban": 621,
+        "Passenger": 662,
+        "Freight": 828
+      },
+      "verification": "assumed"
+    },
+    {
+      "id": "MED_MOB",
+      "from_station": "MED",
+      "to_station": "MOB",
+      "length_km_modelled": 14.5,
+      "track_type_modelled": "single",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 522,
+        "Suburban": 652,
+        "Passenger": 696,
+        "Freight": 870
+      },
+      "verification": "assumed"
+    },
+    {
+      "id": "MOB_ME",
+      "from_station": "MOB",
+      "to_station": "ME",
+      "length_km_modelled": 14.3,
+      "track_type_modelled": "single",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 515,
+        "Suburban": 644,
+        "Passenger": 686,
+        "Freight": 858
+      },
+      "verification": "assumed"
+    },
+    {
+      "id": "ME_WDR",
+      "from_station": "ME",
+      "to_station": "WDR",
+      "length_km_modelled": 13.2,
+      "track_type_modelled": "single",
+      "headway_seconds_modelled": 180,
+      "speed_limits_kmh_modelled": {
+        "Express": 100.0,
+        "Suburban": 80.0,
+        "Passenger": 75.0,
+        "Freight": 60.0
+      },
+      "minimum_runtime_seconds_modelled": {
+        "Express": 475,
+        "Suburban": 594,
+        "Passenger": 634,
+        "Freight": 792
+      },
+      "verification": "assumed"
+    }
+  ]
+}

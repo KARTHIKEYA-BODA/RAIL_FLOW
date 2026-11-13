@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from typing import Dict, List, Literal, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -38,6 +39,9 @@ from counterfactual import CounterfactualExplainer, ExplainableRecommendation
 from stretch_features import ArrivalForecaster, OverrideLearningSystem
 from benchmark import run_single_comparison, run_benchmark_suite, benchmark_source_fingerprint
 from cause_inference import infer_arrival_cause, build_station_arrivals
+from station_access import router as station_access_router, snapshot_connection
+from timetable_preview import prepare as prepare_timetable_scenario, RUNNING_MODEL_FINGERPRINT
+from export_infrastructure import build_manifest as build_infrastructure_manifest
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -120,6 +124,7 @@ class IncidentCreateRequest(BaseModel):
     type: Literal["late_train", "loco_failure", "signal_failure", "speed_restriction", "platform_blocked", "safety_incident", "other"]
     train_ids: List[str] = []
     platform: Optional[int] = None
+    block_id: Optional[str] = None
     est_duration_min: int = 15
     note: Optional[str] = None
     reported_by: Optional[str] = "Station Master SC"
@@ -134,10 +139,13 @@ class IncidentDto(BaseModel):
     type: str
     train_ids: List[str] = []
     platform: Optional[int] = None
+    block_id: Optional[str] = None
     started_at: str
     est_duration_min: int = 15
     note: Optional[str] = None
-    status: Literal["open", "resolved"] = "open"
+    status: Literal["reported", "open", "resolved"] = "open"
+    impact_preview: Optional[Dict] = None
+    restored: bool = False
     reported_by: Optional[str] = "Station Master SC"
 
 class LogEntryDto(BaseModel):
@@ -237,6 +245,35 @@ active_incidents: List[IncidentDto] = [
     ),
 ]
 blocked_platforms_state: Dict[str, Set[int]] = {"SC": {1}}
+
+
+def _save_incident(incident: IncidentDto, event: str):
+    """Persist the incident snapshot and append a simulation audit event."""
+    payload = json.dumps(incident.model_dump())
+    with snapshot_connection() as db:
+        db.execute('INSERT OR REPLACE INTO simulation_incidents (id, payload) VALUES (?, ?)', (incident.id, payload))
+        db.execute('INSERT INTO simulation_incident_events (incident_id, event, created_at, payload) VALUES (?, ?, ?, ?)', (incident.id, event, datetime.now().isoformat(), payload))
+
+
+def _restore_incidents():
+    """Restore non-cleared records as provisional; never reapply old constraints."""
+    with snapshot_connection() as db:
+        rows = db.execute('SELECT payload FROM simulation_incidents').fetchall()
+    existing = {incident.id for incident in active_incidents}
+    for (payload,) in rows:
+        try:
+            incident = IncidentDto.model_validate_json(payload)
+        except (ValueError, TypeError):
+            logger.warning('Ignoring invalid saved simulation incident')
+            continue
+        if incident.status == 'resolved' or incident.id in existing:
+            continue
+        incident.status = 'reported'
+        incident.restored = True
+        incident.impact_preview = None
+        active_incidents.append(incident)
+        _save_incident(incident, 'restored_review_required')
+
 
 
 def _load_initial_data():
@@ -471,9 +508,12 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(station_access_router)
+
 # Load data immediately at module load time
 _load_initial_data()
 _recompute_all(log_action="SYSTEM_INIT", details="PS-09 Railway Brain initialized with CP-SAT solver")
+_restore_incidents()
 
 # CORS setup
 app.add_middleware(
@@ -496,6 +536,17 @@ def health():
         "active_websocket_clients": len(manager.active_connections),
         "latest_solve_ms": latest_kpis.get("solve_time_ms", 0.0),
     }
+
+
+@app.get("/corridor/blocks")
+def get_corridor_blocks():
+    return [{"id": b.id, "from_station": b.from_station, "to_station": b.to_station, "track_type": b.track_type.value, "track_type_verification": "assumed", "minimum_runtime_seconds_modelled": {train_class.value: b.min_runtime_sec(train_class) for train_class in b.speed_limit_kmh}, "source_note": "Prototype assumption; section configuration has not been verified with railway infrastructure records."} for b in corridor.blocks]
+
+
+@app.get("/corridor/infrastructure")
+def get_corridor_infrastructure():
+    """Return the model's complete assumptions, including class runtimes."""
+    return build_infrastructure_manifest()
 
 
 @app.get("/stations")
@@ -555,16 +606,42 @@ def get_incidents(station: Optional[str] = None):
     return [inc.model_dump() for inc in active_incidents]
 
 
+@app.get("/incident-history")
+def incident_history():
+    with snapshot_connection() as db:
+        rows = db.execute('SELECT incident_id, event, created_at, payload FROM simulation_incident_events ORDER BY id DESC LIMIT 50').fetchall()
+    return [{"incident_id": item_id, "event": event, "created_at": created, "station": json.loads(payload).get("station"), "type": json.loads(payload).get("type")} for item_id, event, created, payload in rows]
+
+
 @app.post("/incidents")
 def create_incident(req: IncidentCreateRequest):
+    global active_incidents, active_disruptions, blocked_platforms_state
     """
     Submits a Station Master field incident in under 10 seconds.
-    Directly translates report type to solver effects and triggers CP-SAT re-plan in < 5 seconds.
+    Records a provisional report and previews its effect without changing the active plan.
     """
+    station_obj = corridor.get_station(req.station)
+    if not station_obj:
+        raise HTTPException(422, "Unknown station in the simulated corridor.")
+    if not 1 <= req.est_duration_min <= 1440:
+        raise HTTPException(422, "Duration must be between 1 and 1440 minutes.")
+    if req.platform is not None and not 1 <= req.platform <= station_obj.platforms:
+        raise HTTPException(422, "Platform is outside the simulated station.")
+    if req.type in ("late_train", "loco_failure") and (not req.train_ids or not any(t.id == req.train_ids[0] for t in trains_prototype)):
+        raise HTTPException(422, "Select a train from the simulated timetable for this incident.")
+    if req.type == "platform_blocked" and req.platform is None:
+        raise HTTPException(422, "Select the simulated platform that is blocked.")
+    incident_block = next((b for b in corridor.blocks if b.id == req.block_id), None)
+    if req.type in ("loco_failure", "signal_failure", "speed_restriction") and incident_block is None:
+        raise HTTPException(422, "Select an affected simulated block section.")
+    if req.type == "loco_failure":
+        train = next(t for t in trains_prototype if t.id == req.train_ids[0])
+        if incident_block.id not in {b.id for a, z in zip(train.stops, train.stops[1:]) if (b := corridor.get_block(a.station_id, z.station_id))}:
+            raise HTTPException(422, "The selected simulated train does not use that block.")
     now = datetime.now()
     now_str = now.strftime("%H:%M")
     now_sec = now.hour * 3600 + now.minute * 60 + now.second
-    inc_id = f"INC-{int(time.time()) % 10000}"
+    inc_id = f"INC-{uuid.uuid4().hex[:12]}"
 
     new_inc = IncidentDto(
         id=inc_id,
@@ -572,75 +649,140 @@ def create_incident(req: IncidentCreateRequest):
         type=req.type,
         train_ids=req.train_ids,
         platform=req.platform,
+        block_id=req.block_id,
         started_at=now_str,
         est_duration_min=req.est_duration_min,
         note=req.note or f"{req.type.replace('_', ' ').capitalize()} reported at {req.station}",
         status="open",
         reported_by=req.reported_by or "Station Master SC",
     )
+    new_inc.status = "reported"
     active_incidents.append(new_inc)
-
-    safety_alert = None
-    # Solver effects per report type
-    if req.type == "late_train":
-        target_train = req.train_ids[0] if req.train_ids else (trains_prototype[0].id if trains_prototype else "EXP-12723")
-        active_disruptions.append(Disruption(
-            id=f"DIS-{inc_id}",
-            type="late_train",
-            start_time_sec=now_sec,
-            duration_sec=req.est_duration_min * 60,
-            train_id=target_train,
-            station_id=req.station,
-            description=f"Reported late arrival: {target_train} ({req.est_duration_min} min)",
-        ))
-    elif req.type == "loco_failure":
-        target_train = req.train_ids[0] if req.train_ids else (trains_prototype[0].id if trains_prototype else "EXP-12723")
-        block = next((b for b in corridor.blocks if b.from_station == req.station or b.to_station == req.station), corridor.blocks[0])
-        active_disruptions.append(Disruption(
-            id=f"DIS-{inc_id}",
-            type="loco_failure",
-            start_time_sec=now_sec,
-            duration_sec=req.est_duration_min * 60,
-            train_id=target_train,
-            block_id=block.id,
-            description=f"Loco failure on {target_train} near {req.station}",
-        ))
-    elif req.type in ("signal_failure", "speed_restriction"):
-        block = next((b for b in corridor.blocks if b.from_station == req.station or b.to_station == req.station), corridor.blocks[0])
-        active_disruptions.append(Disruption(
-            id=f"DIS-{inc_id}",
-            type=req.type,
-            start_time_sec=now_sec,
-            duration_sec=req.est_duration_min * 60,
-            block_id=block.id,
-            speed_restriction_kmh=25.0 if req.type == "signal_failure" else 30.0,
-            additional_headway_sec=300 if req.type == "signal_failure" else 0,
-            description=f"Reported {req.type.replace('_', ' ')} on section {block.id}",
-        ))
-    elif req.type == "platform_blocked":
-        p = req.platform or 1
-        if req.station not in blocked_platforms_state:
-            blocked_platforms_state[req.station] = set()
-        blocked_platforms_state[req.station].add(p)
-    elif req.type == "safety_incident":
-        p = req.platform or 1
-        if req.station not in blocked_platforms_state:
-            blocked_platforms_state[req.station] = set()
-        blocked_platforms_state[req.station].add(p)
-        safety_alert = "Inform the Section Controller through the official channel. This tool does not replace official accident reporting."
-
-    _recompute_all(
-        log_action="INCIDENT_REPORTED",
-        details=f"Station Master reported {req.type} ({inc_id}) at {req.station}: {new_inc.note}",
-    )
+    safety_alert = "Inform the Section Controller through the official channel. This tool does not replace official accident reporting." if req.type == "safety_incident" else None
+    # Preview uses independent copies and cannot change the current plan.
+    try:
+        disruption, platforms = _incident_constraints(new_inc, now_sec)
+        preview_disruptions = [*active_disruptions, *([disruption] if disruption else [])]
+        preview_platforms = copy.deepcopy(blocked_platforms_state)
+        if platforms:
+            preview_platforms.setdefault(new_inc.station, set()).add(platforms)
+        result = CPSATSectionOptimizer(corridor=corridor, time_limit_sec=3.0).solve(
+            trains=trains_prototype, disruptions=preview_disruptions,
+            maintenance_blocks=active_maintenance, fixed_overrides=fixed_overrides,
+            max_dwell_sec=rejected_holds, blocked_platforms=preview_platforms,
+        )
+        impact = {"status": result.status, "solve_time_ms": result.solve_time_ms,
+                  "weighted_delay_min": round(result.total_weighted_delay_sec / 60, 1) if result.status in ("OPTIMAL", "FEASIBLE") else None,
+                  "model_effect": bool(disruption or platforms)}
+    except Exception:
+        logger.exception("Incident preview failed")
+        impact = {"status": "UNAVAILABLE", "weighted_delay_min": None, "model_effect": False}
+    new_inc.impact_preview = impact
+    try:
+        _save_incident(new_inc, "reported")
+    except Exception:
+        active_incidents.remove(new_inc)
+        raise HTTPException(503, "Could not save the report; it was not submitted.") from None
     notify_clients("incident_update", {"incident": new_inc.model_dump(), "safety_alert": safety_alert})
+    return {"status": "created", "incident": new_inc.model_dump(), "impact_preview": impact, "safety_alert": safety_alert}
 
-    return {
-        "status": "created",
-        "incident": new_inc.model_dump(),
-        "solve_time_ms": latest_kpis.get("solve_time_ms", 0.0),
-        "safety_alert": safety_alert,
-    }
+
+def _incident_constraints(inc: IncidentDto, now_sec: int):
+    """Build model-only constraints; no mutation of current state."""
+    duration = inc.est_duration_min * 60
+    if inc.type == "late_train":
+        return Disruption(id=f"DIS-{inc.id}", type="late_train", start_time_sec=now_sec, duration_sec=duration, train_id=inc.train_ids[0], station_id=inc.station, description=f"Reported late arrival: {inc.train_ids[0]}"), None
+    if inc.type == "loco_failure":
+        return Disruption(id=f"DIS-{inc.id}", type="loco_failure", start_time_sec=now_sec, duration_sec=duration, train_id=inc.train_ids[0], block_id=inc.block_id, description="Reported locomotive failure"), None
+    if inc.type in ("signal_failure", "speed_restriction"):
+        return Disruption(id=f"DIS-{inc.id}", type=inc.type, start_time_sec=now_sec, duration_sec=duration, block_id=inc.block_id, speed_restriction_kmh=25.0 if inc.type == "signal_failure" else 30.0, additional_headway_sec=300 if inc.type == "signal_failure" else 0, description=f"Reported {inc.type}"), None
+    if inc.type in ("platform_blocked", "safety_incident"):
+        return None, inc.platform
+    return None, None
+
+
+@app.post("/incidents/{inc_id}/preview")
+def refresh_incident_preview(inc_id: str):
+    inc = next((item for item in active_incidents if item.id == inc_id), None)
+    if inc is None:
+        raise HTTPException(404, "Incident not found")
+    if inc.status != "reported":
+        raise HTTPException(409, "Only a provisional report can be previewed.")
+    now = datetime.now()
+    disruption, platform = _incident_constraints(inc, now.hour * 3600 + now.minute * 60 + now.second)
+    preview_disruptions = [*active_disruptions, *([disruption] if disruption else [])]
+    preview_platforms = copy.deepcopy(blocked_platforms_state)
+    if platform:
+        preview_platforms.setdefault(inc.station, set()).add(platform)
+    result = CPSATSectionOptimizer(corridor=corridor, time_limit_sec=3.0).solve(
+        trains=trains_prototype, disruptions=preview_disruptions,
+        maintenance_blocks=active_maintenance, fixed_overrides=fixed_overrides,
+        max_dwell_sec=rejected_holds, blocked_platforms=preview_platforms,
+    )
+    previous_preview, previous_restored = inc.impact_preview, inc.restored
+    inc.impact_preview = {"status": result.status, "solve_time_ms": result.solve_time_ms,
+                          "weighted_delay_min": round(result.total_weighted_delay_sec / 60, 1) if result.status in ("OPTIMAL", "FEASIBLE") else None,
+                          "model_effect": bool(disruption or platform)}
+    inc.restored = False
+    try:
+        _save_incident(inc, "preview_refreshed")
+    except Exception:
+        inc.impact_preview, inc.restored = previous_preview, previous_restored
+        raise
+    notify_clients("incident_update", {"incident": inc.model_dump()})
+    return {"incident": inc.model_dump()}
+
+
+def _incident_plan_checkpoint():
+    return copy.deepcopy({"disruptions": active_disruptions, "platforms": blocked_platforms_state,
+                          "current": current_schedule_entries, "previous": previous_schedule_entries,
+                          "baseline": baseline_schedule_entries, "recommendations": current_recommendations,
+                          "kpis": latest_kpis, "revision": plan_revision, "logs": audit_logs})
+
+
+def _restore_incident_plan(checkpoint):
+    global active_disruptions, blocked_platforms_state, current_schedule_entries, previous_schedule_entries
+    global baseline_schedule_entries, current_recommendations, latest_kpis, plan_revision
+    active_disruptions = checkpoint['disruptions']
+    blocked_platforms_state = checkpoint['platforms']
+    current_schedule_entries = checkpoint['current']
+    previous_schedule_entries = checkpoint['previous']
+    baseline_schedule_entries = checkpoint['baseline']
+    current_recommendations = checkpoint['recommendations']
+    latest_kpis = checkpoint['kpis']
+    plan_revision = checkpoint['revision']
+    audit_logs[:] = checkpoint['logs']
+
+
+@app.post("/incidents/{inc_id}/confirm")
+def confirm_incident(inc_id: str):
+    """Apply a reported incident to the simulation only after controller confirmation."""
+    global active_disruptions, blocked_platforms_state
+    inc = next((item for item in active_incidents if item.id == inc_id), None)
+    if inc is None:
+        raise HTTPException(404, "Incident not found")
+    if inc.status != "reported":
+        raise HTTPException(409, "Only a provisional report can be confirmed.")
+    if inc.restored:
+        raise HTTPException(409, "This restored report needs a fresh preview before confirmation.")
+    now = datetime.now()
+    now_sec = now.hour * 3600 + now.minute * 60 + now.second
+    disruption, platform = _incident_constraints(inc, now_sec)
+    checkpoint = _incident_plan_checkpoint()
+    if disruption:
+        active_disruptions.append(disruption)
+    if platform:
+        blocked_platforms_state.setdefault(inc.station, set()).add(platform)
+    try:
+        _recompute_all(log_action="INCIDENT_CONFIRMED", details=f"Controller confirmed simulated incident {inc.id} at {inc.station}.")
+        inc.status = "open"
+        _save_incident(inc, "confirmed")
+    except Exception:
+        inc.status = "reported"
+        _restore_incident_plan(checkpoint)
+        raise
+    notify_clients("incident_update", {"incident": inc.model_dump()})
+    return {"status": "confirmed", "incident": inc.model_dump(), "solve_time_ms": latest_kpis.get("solve_time_ms")}
 
 
 @app.patch("/incidents/{inc_id}")
@@ -650,7 +792,21 @@ def patch_incident(inc_id: str, req: IncidentPatchRequest):
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found")
 
+    was_reported = inc.status == "reported"
+    if inc.status == "resolved":
+        raise HTTPException(409, "Incident is already resolved.")
+    checkpoint = _incident_plan_checkpoint()
+    if req.status == "open":
+        raise HTTPException(409, "Use the controller confirmation endpoint.")
     inc.status = req.status
+    if req.status == "resolved" and was_reported:
+        try:
+            _save_incident(inc, "resolved")
+        except Exception:
+            inc.status = "reported"
+            raise
+        notify_clients("incident_update", {"incident": inc.model_dump(), "resolved": True})
+        return {"status": "updated", "incident": inc.model_dump()}
     if req.status == "resolved":
         global active_disruptions
         active_disruptions = [d for d in active_disruptions if d.id != f"DIS-{inc_id}"]
@@ -662,10 +818,16 @@ def patch_incident(inc_id: str, req: IncidentPatchRequest):
             if not other_blocks:
                 blocked_platforms_state[inc.station].discard(inc.platform)
 
-        _recompute_all(
-            log_action="INCIDENT_RESOLVED",
-            details=f"Incident {inc_id} at {inc.station} resolved: {req.resolution_note or 'Cleared'}",
-        )
+        try:
+            _recompute_all(
+                log_action="INCIDENT_RESOLVED",
+                details=f"Incident {inc_id} at {inc.station} resolved: {req.resolution_note or 'Cleared'}",
+            )
+            _save_incident(inc, "resolved")
+        except Exception:
+            inc.status = "open"
+            _restore_incident_plan(checkpoint)
+            raise
         notify_clients("incident_update", {"incident": inc.model_dump(), "resolved": True})
 
     return {"status": "updated", "incident": inc.model_dump()}
@@ -696,7 +858,7 @@ def get_station_arrivals_endpoint(station_id: str, window: int = 120):
 
     safety_incident = next((
         i for i in active_incidents
-        if i.status == "open" and i.station == station_id and i.type == "safety_incident"
+        if i.status in ("reported", "open") and i.station == station_id and i.type == "safety_incident"
     ), None)
 
     station_obj = corridor.get_station(station_id)
@@ -707,11 +869,133 @@ def get_station_arrivals_endpoint(station_id: str, window: int = 120):
         "platforms_count": station_obj.platforms if station_obj else 6,
         "window_minutes": window,
         "arrivals": arrivals,
-        "active_incidents": [i.model_dump() for i in active_incidents if i.station == station_id and i.status == "open"],
+        "active_incidents": [i.model_dump() for i in active_incidents if i.station == station_id and i.status in ("reported", "open")],
         "blocked_platforms": list(blocked_platforms_state.get(station_id, set())),
         "safety_alert": "Inform the Section Controller through the official channel. This tool does not replace official accident reporting." if safety_incident else None,
         "timestamp": now.isoformat(),
     }
+
+
+@app.get("/controller/replays")
+def list_controller_replays():
+    """Local demo replays; these are recorded simulations, not live plans."""
+    with snapshot_connection() as db:
+        rows = db.execute("SELECT id, created_at, payload FROM timetable_previews ORDER BY id DESC LIMIT 50").fetchall()
+    result = []
+    for preview_id, created, payload in rows:
+        item = json.loads(payload)
+        if item.get("result", {}).get("schedule"):
+            result.append({"id": preview_id, "created_at": created, "corridor_date": item["input"]["corridor_date"], "train_count": len(item["result"].get("trains", []))})
+    return result
+
+
+@app.get("/controller/replays/{preview_id}")
+def controller_replay(preview_id: int):
+    with snapshot_connection() as db:
+        row = db.execute("SELECT payload FROM timetable_previews WHERE id = ?", (preview_id,)).fetchone()
+    if row is None:
+        raise HTTPException(404, "Recorded preview not found.")
+    item = json.loads(row[0])
+    result = item.get("result", {})
+    if not result.get("schedule"):
+        raise HTTPException(409, "The recorded preview has no feasible schedule.")
+    base = datetime.fromisoformat(item["input"]["corridor_date"] + "T00:00:00+05:30")
+    def at(seconds):
+        return (base + timedelta(seconds=seconds)).isoformat()
+    schedule = [{"train_id": entry["train_number"], "station_id": entry["station"], "assigned_platform": 0,
+                 "scheduled_arrival": at(entry["scheduled_arrival_sec"]), "scheduled_departure": at(entry["scheduled_departure_sec"]),
+                 "actual_arrival": at(entry["planned_arrival_sec"]), "actual_departure": at(entry["planned_departure_sec"])} for entry in result["schedule"]]
+    with snapshot_connection() as db:
+        reviews = {row[0]: {"status": row[1], "alternative": json.loads(row[2]) if row[2] else None} for row in db.execute('SELECT decision_index, status, alternative FROM replay_reviews WHERE preview_id = ?', (preview_id,)).fetchall()}
+        events = [{'decision_index': row[0], 'event': row[1], 'created_at': row[2]} for row in db.execute('SELECT decision_index, event, created_at FROM replay_review_events WHERE preview_id = ? ORDER BY id DESC', (preview_id,)).fetchall()]
+    decisions = [{**decision, "review_status": reviews.get(i, {}).get("status", "PENDING"), "alternative": reviews.get(i, {}).get("alternative")} for i, decision in enumerate(result.get("decisions", []))]
+    return {"id": preview_id, "mode": "REPLAY", "model_current": item.get("model_fingerprint") == RUNNING_MODEL_FINGERPRINT, "corridor_date": item["input"]["corridor_date"],
+            "source_timestamp": item["created_at"], "input_fingerprint": item["input_fingerprint"],
+            "schedule": schedule, "trains": [{"id": t["number"], "name": t["name"], "type": t["class"]} for t in result["trains"]],
+            "decisions": decisions, "review_events": events, "limitations": "Recorded timetable simulation. Track is assumed and platforms are unknown. Reviews do not change the active plan or control trains."}
+
+
+def _replay_decision(preview_id: int, decision_index: int):
+    with snapshot_connection() as db:
+        row = db.execute('SELECT payload FROM timetable_previews WHERE id = ?', (preview_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Recorded preview not found.")
+    item = json.loads(row[0])
+    decisions = item.get('result', {}).get('decisions', [])
+    if decision_index < 0 or decision_index >= len(decisions):
+        raise HTTPException(404, "Recorded hold not found.")
+    return item, decisions[decision_index]
+
+
+@app.post("/controller/replays/{preview_id}/decisions/{decision_index}/preview")
+def replay_decision_preview(preview_id: int, decision_index: int):
+    item, decision = _replay_decision(preview_id, decision_index)
+    if item.get('model_fingerprint') != RUNNING_MODEL_FINGERPRINT:
+        raise HTTPException(409, "The model has changed or this is an older recording. Create a new timetable preview before comparing alternatives.")
+    source = item['input']
+    trains, _, replay_corridor, disruptions, maintenance = prepare_timetable_scenario(
+        [entry['record'] for entry in source['timetables']], datetime.fromisoformat(source['corridor_date']).date(),
+        source.get('delay_train'), source.get('delay_minutes', 0), source.get('scenario'))
+    train = next((train for train in trains if train.id == decision['train_id']), None)
+    stop = next((stop for stop in train.stops if stop.station_id == decision['station_id']), None) if train else None
+    if stop is None:
+        raise HTTPException(409, "The recorded hold cannot be mapped to the saved timetable.")
+    result = CPSATSectionOptimizer(corridor=replay_corridor, time_limit_sec=3.0).solve(
+        trains=trains, disruptions=disruptions, maintenance_blocks=maintenance,
+        max_dwell_sec={(train.id, stop.station_id): stop.min_dwell_sec})
+    feasible = result.status in ('OPTIMAL', 'FEASIBLE')
+    current = item['result'].get('weighted_delay_minutes')
+    alternative = round(result.total_weighted_delay_sec / 60, 1) if feasible else None
+    base = datetime.fromisoformat(source['corridor_date'] + 'T00:00:00+05:30')
+    def at(seconds):
+        return (base + timedelta(seconds=seconds)).isoformat()
+    alternate_schedule = []
+    if feasible:
+        for t in trains:
+            for st in t.stops:
+                times = result.schedule.get((t.id, st.station_id))
+                if times is not None:
+                    alternate_schedule.append({"train_id": t.id, "station_id": st.station_id, "assigned_platform": 0,
+                        "scheduled_arrival": at(st.scheduled_arrival_sec), "scheduled_departure": at(st.scheduled_departure_sec),
+                        "actual_arrival": at(times[0]), "actual_departure": at(times[1])})
+    impact = {"status": result.status, "current_weighted_delay_min": current, "alternative_weighted_delay_min": alternative,
+              "alternative_schedule": alternate_schedule,
+              "delta_weighted_delay_min": round(alternative - current, 1) if current is not None and alternative is not None else None,
+              "assumption": "The train departs after its minimum modelled dwell at this station.",
+              "model_fingerprint": item['model_fingerprint']}
+    with snapshot_connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        existing = db.execute('SELECT status FROM replay_reviews WHERE preview_id = ? AND decision_index = ?', (preview_id, decision_index)).fetchone()
+        if existing and existing[0] in ('ACCEPTED', 'REJECTED'):
+            raise HTTPException(409, "This recorded hold has already been reviewed.")
+        db.execute('INSERT INTO replay_reviews (preview_id, decision_index, status, alternative) VALUES (?, ?, ?, ?) ON CONFLICT(preview_id, decision_index) DO UPDATE SET status = excluded.status, alternative = excluded.alternative', (preview_id, decision_index, 'PREVIEWED', json.dumps(impact)))
+        db.execute('INSERT INTO replay_review_events (preview_id, decision_index, event, created_at) VALUES (?, ?, ?, ?)', (preview_id, decision_index, 'PREVIEWED', datetime.now().isoformat()))
+    return impact
+
+
+@app.post("/controller/replays/{preview_id}/decisions/{decision_index}/{action}")
+def review_replay_decision(preview_id: int, decision_index: int, action: Literal['accept', 'reject']):
+    item, decision = _replay_decision(preview_id, decision_index)
+    if item.get('model_fingerprint') != RUNNING_MODEL_FINGERPRINT:
+        raise HTTPException(409, 'The model has changed or this is an older recording. Create a new timetable preview before reviewing.')
+    with snapshot_connection() as db:
+        db.execute('BEGIN IMMEDIATE')
+        previous = db.execute('SELECT status, alternative FROM replay_reviews WHERE preview_id = ? AND decision_index = ?', (preview_id, decision_index)).fetchone()
+        if previous and previous[0] in ('ACCEPTED', 'REJECTED'):
+            raise HTTPException(409, "This recorded hold has already been reviewed.")
+        if action == 'reject':
+            alternative = json.loads(previous[1]) if previous and previous[1] else None
+            if not alternative or alternative.get('delta_weighted_delay_min') is None or alternative.get('model_fingerprint') != RUNNING_MODEL_FINGERPRINT:
+                raise HTTPException(409, "Calculate a feasible alternative using the current model before rejecting.")
+        instruction_id = None
+        if action == 'accept':
+            instruction_id = f"SIM-{uuid.uuid4().hex}"
+            message = f"Recorded replay #{preview_id}: hold {decision['train_id']} at {decision['station_id']} for {decision['hold_minutes']} min. Simulation review only."
+            db.execute('INSERT INTO simulation_instructions (id, station, train_id, message, created_at, plan_revision) VALUES (?, ?, ?, ?, ?, ?)', (instruction_id, decision['station_id'], decision['train_id'], message, datetime.now().isoformat(), -1))
+        status = 'ACCEPTED' if action == 'accept' else 'REJECTED'
+        db.execute('INSERT INTO replay_reviews (preview_id, decision_index, status, instruction_id) VALUES (?, ?, ?, ?) ON CONFLICT(preview_id, decision_index) DO UPDATE SET status = excluded.status, instruction_id = excluded.instruction_id', (preview_id, decision_index, status, instruction_id))
+        db.execute('INSERT INTO replay_review_events (preview_id, decision_index, event, created_at) VALUES (?, ?, ?, ?)', (preview_id, decision_index, status, datetime.now().isoformat()))
+    return {"status": status, "instruction_id": instruction_id, "message": "Review recorded for this simulation replay. The active plan was not changed."}
 
 
 @app.get("/schedule")
@@ -851,6 +1135,12 @@ def accept_recommendation(rec_id: str):
     if not rec:
         raise HTTPException(status_code=404, detail="Recommendation not found")
 
+    if rec.status != "PENDING":
+        raise HTTPException(status_code=409, detail="Recommendation is no longer pending.")
+    instruction_id = f"SIM-{uuid.uuid4().hex}"
+    with snapshot_connection() as db:
+        db.execute('INSERT INTO simulation_instructions (id, station, train_id, message, created_at, plan_revision) VALUES (?, ?, ?, ?, ?, ?)',
+                   (instruction_id, rec.station_id, rec.train_id, rec.one_line_reason, datetime.now().isoformat(), plan_revision))
     rec.status = "ACCEPTED"
     override_system.log_decision(
         recommendation_id=rec.id,
@@ -869,6 +1159,7 @@ def accept_recommendation(rec_id: str):
 
     return {
         "status": "accepted",
+        "instruction_id": instruction_id,
         "recommendation_id": rec.id,
         "saved_weighted_min": rec.weighted_minutes_saved,
     }
@@ -1195,6 +1486,11 @@ def get_logs():
 @app.post("/reset")
 def post_reset():
     global active_disruptions, active_maintenance, fixed_overrides, whatif_sandbox_state, pending_maintenance, pending_maintenance_revision, active_incidents, blocked_platforms_state
+    # Reset explicitly closes persisted simulation incidents rather than reviving them on restart.
+    for incident in active_incidents:
+        if incident.id not in ("INC-101", "INC-102") and incident.status != "resolved":
+            closed = incident.model_copy(update={"status": "resolved", "restored": False})
+            _save_incident(closed, "simulation_reset")
     active_disruptions = []
     active_maintenance = []
     fixed_overrides = {}

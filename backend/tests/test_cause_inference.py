@@ -8,6 +8,8 @@ Validates:
 5. Incident resolution via PATCH /incidents/{id}.
 """
 import time
+from datetime import datetime, timedelta
+import main
 from fastapi.testclient import TestClient
 import pytest
 from main import app, active_incidents, blocked_platforms_state, trains_prototype
@@ -16,7 +18,14 @@ from main import app, active_incidents, blocked_platforms_state, trains_prototyp
 client = TestClient(app)
 
 
-def test_station_arrivals_endpoint():
+def test_station_arrivals_endpoint(monkeypatch):
+    entry = next(e for e in main.current_schedule_entries if e.station_id == 'SC')
+    fixed = datetime.fromisoformat(entry.actual_arrival) - timedelta(minutes=5)
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed if tz is None else fixed.astimezone(tz)
+    monkeypatch.setattr(main, 'datetime', FixedDateTime)
     response = client.get("/station/SC/arrivals?window=180")
     assert response.status_code == 200
     data = response.json()
@@ -44,7 +53,9 @@ def test_cause_inference_layers():
     assert resp.status_code == 200
     inc_data = resp.json()
     assert inc_data["status"] == "created"
-    assert resp.json()["solve_time_ms"] < 5000.0
+    assert inc_data["incident"]["status"] == "reported"
+    assert "status" in inc_data["impact_preview"]
+    assert client.post(f"/incidents/{inc_data['incident']['id']}/confirm").status_code == 200
 
     # Query arrivals at SC
     arr_resp = client.get("/station/SC/arrivals?window=360")
@@ -69,9 +80,11 @@ def test_platform_blocked_and_resolution():
     assert resp.status_code == 200
     inc_id = resp.json()["incident"]["id"]
 
-    # Verify platform 2 is in blocked_platforms
+    # A provisional report does not affect the active plan.
     arr_resp = client.get("/station/SC/arrivals?window=120")
-    assert 2 in arr_resp.json()["blocked_platforms"]
+    assert 2 not in arr_resp.json()["blocked_platforms"]
+    assert client.post(f"/incidents/{inc_id}/confirm").status_code == 200
+    assert 2 in client.get("/station/SC/arrivals?window=120").json()["blocked_platforms"]
 
     # Resolve incident
     patch_resp = client.patch(f"/incidents/{inc_id}", json={

@@ -26,3 +26,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Local backend credentials and runtime data
+backend/.env
+
+backend/data/*.sqlite3
+backend/data/*.sqlite3-*

@@ -1,20 +1,18 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ShieldAlert,
-  Check,
   Plus,
   RotateCcw,
-  Send,
 } from 'lucide-react';
 import {
   fetchStationArrivals,
   resolveIncident,
-  applyOverride,
-  acceptRecommendation,
-  rejectRecommendation,
 } from '../../lib/operationsApi';
 import type { Incident, StationArrivalsResponse } from '../../types/railway';
 import { StationReportSheet } from './StationReportSheet';
+import { RealStationBoard } from './RealStationBoard';
+import { TimetablePreview } from './TimetablePreview';
+import { StationInstructions } from './StationInstructions';
 import { notify } from '../../lib/notify';
 
 interface StationMasterViewProps {
@@ -47,8 +45,8 @@ export function StationMasterView({
         const firstDelayed = res.arrivals.find((a) => a.delay_minutes > 0);
         setSelectedTrainId(firstDelayed ? firstDelayed.train_id : res.arrivals[0].train_id);
       }
-    } catch (err: any) {
-      notify.error('Station Data Error', err.message || 'Could not load station timetable.');
+    } catch (err: unknown) {
+      notify.error('Station Data Error', err instanceof Error ? err.message : 'Could not load station timetable.');
     } finally {
       setLoading(false);
     }
@@ -106,57 +104,6 @@ export function StationMasterView({
     } catch {
       notify.error('Undo Failed', 'Could not revert incident on server.');
     }
-  };
-
-  // Resolve incident directly from Today's Incidents list
-  const handleResolveIncident = async (incId: string) => {
-    try {
-      await resolveIncident(incId, 'Cleared by Station Master');
-      notify.success('Incident Resolved', `Incident ${incId} cleared. Schedule recomputed.`);
-      loadData(true);
-    } catch (err: any) {
-      notify.error('Resolution Error', err.message);
-    }
-  };
-
-  // Accept solver platform change
-  const handleAcceptFix = async (rec: any) => {
-    try {
-      if (rec.id.startsWith('REC-SM-')) {
-        // Local synthetic recommendation fallback: apply platform override directly
-        const targetPlatform = ((selectedArrival?.assigned_platform || 1) % 6) + 1;
-        await applyOverride({
-          train_id: selectedArrival!.train_id,
-          station_id: stationId,
-          new_platform: targetPlatform,
-          reason: 'Station Master accepted platform change fix',
-        });
-      } else {
-        await acceptRecommendation(rec.id);
-      }
-      notify.success('Fix Accepted', `${rec.title} committed. CP-SAT schedule recomputed.`);
-      loadData(true);
-    } catch (err: any) {
-      notify.error('Action Failed', err.message);
-    }
-  };
-
-  // Reject solver recommendation
-  const handleRejectFix = async (rec: any) => {
-    try {
-      if (!rec.id.startsWith('REC-SM-')) {
-        await rejectRecommendation(rec.id, 'STATION_MASTER_PREFERENCE');
-      }
-      notify.info('Fix Rejected', 'Alternative plan calculated by CP-SAT solver.');
-      loadData(true);
-    } catch (err: any) {
-      notify.error('Action Failed', err.message);
-    }
-  };
-
-  // Send to controller (for section-level holds)
-  const handleSendToController = (rec: any) => {
-    notify.info('Forwarded to Section Controller', `Dispatched request: "${rec.title}" to Central OCC.`);
   };
 
   // Filtered arrivals list
@@ -235,13 +182,16 @@ export function StationMasterView({
             <button
               onClick={() => setIsReportOpen(true)}
               className="btn btn-primary"
-              title="Report ground truth incident"
+              title="Report a simulated incident"
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Report (I)</span>
             </button>
           </div>
         </div>
+
+        <RealStationBoard />
+        <TimetablePreview />
 
         {/* Safety Incident Alert Banner */}
         {data?.safety_alert && (
@@ -258,6 +208,7 @@ export function StationMasterView({
       <main className="max-w-7xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-12 gap-6 mt-2">
         {/* LEFT COLUMN: Arrivals Table & Platform Occupancy (7 Cols) */}
         <div className="lg:col-span-7 space-y-5">
+          <StationInstructions />
           {/* Card Container */}
           <div className="hud-card p-5">
             {/* Header with Tabs & Delayed Filter */}
@@ -470,7 +421,7 @@ export function StationMasterView({
                 <span className="text-xs font-mono font-bold text-white uppercase tracking-wider">
                   Today's Incidents ({data?.active_incidents?.length || 0})
                 </span>
-                <span className="text-[10px] text-white/40">· Ground truth feed</span>
+                <span className="text-[10px] text-white/40">· Simulation incidents</span>
               </div>
               <button
                 onClick={() => setIsReportOpen(true)}
@@ -496,7 +447,7 @@ export function StationMasterView({
                         {inc.started_at}
                       </span>
                       <span className="font-bold text-white capitalize flex-shrink-0">
-                        {inc.type.replace('_', ' ')}
+                        {inc.type.replace('_', ' ')} {inc.status === 'reported' ? '· Provisional' : '· Confirmed'}
                       </span>
                       <span className="text-white/20">·</span>
                       <span className="text-white/60 truncate text-[11px]">
@@ -504,12 +455,9 @@ export function StationMasterView({
                       </span>
                     </div>
 
-                    <button
-                      onClick={() => handleResolveIncident(inc.id)}
-                      className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] text-white/80 hover:text-white font-medium border border-white/15 flex-shrink-0 transition-colors"
-                    >
-                      Resolve
-                    </button>
+                    <span className="text-[11px] text-white/55 flex-shrink-0">
+                      Controller verifies clearance
+                    </span>
                   </div>
                 ))
               )}
@@ -587,33 +535,11 @@ export function StationMasterView({
                       </div>
                     )}
 
-                    {/* Action Levers */}
-                    <div className="pt-2 flex items-center gap-2">
-                      {selectedArrival.recommendation.can_station_master_accept ? (
-                        <>
-                          <button
-                            onClick={() => handleAcceptFix(selectedArrival.recommendation)}
-                            className="flex-1 py-2 rounded-xl bg-gradient-to-b from-[#f2c56d] to-[#dfa83f] text-[#1c1710] font-bold text-xs shadow-md shadow-[#f2b84b]/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                          >
-                            <Check className="w-3.5 h-3.5 stroke-[3]" />
-                            <span>Accept</span>
-                          </button>
-                          <button
-                            onClick={() => handleRejectFix(selectedArrival.recommendation)}
-                            className="flex-1 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                          >
-                            <span>Reject</span>
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => handleSendToController(selectedArrival.recommendation)}
-                          className="w-full py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/15 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                        >
-                          <Send className="w-3.5 h-3.5 text-[#f2b84b]" />
-                          <span>Send to controller</span>
-                        </button>
-                      )}
+                    {/* A Station Master reports observations; Section Control owns plan decisions. */}
+                    <div className="pt-2">
+                      <p className="text-xs text-white/60">
+                        Section Control reviews and decides this recommendation. This screen does not send a message.
+                      </p>
                     </div>
                   </div>
                 ) : (

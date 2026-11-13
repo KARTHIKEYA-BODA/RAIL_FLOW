@@ -15,7 +15,7 @@ Section controllers in Indian Railways make critical train precedence, crossing,
 2. Review a proposed hold and preview a re-solved alternative before accepting or rejecting it.
 3. Compare maintenance start times, then explicitly commit a selected block.
 
-The controller screen is a simulation; it does not control trains or connect to signalling. A solver result marked `FEASIBLE` is time-limited, not necessarily optimal. The alternative preview compares weighted destination delay under a specific minimum-dwell assumption; it is not a guarantee of what would happen in real operations.
+The controller screen is a simulation; it does not control trains or connect to signalling. An optional, on-demand RailRadar board is a separate public reference display. Saved provider timetables can be used in an isolated replay with synthetic disruptions, but neither the reference board nor replay establishes live block occupancy. A solver result marked `FEASIBLE` is time-limited, not necessarily optimal. The alternative preview compares weighted destination delay under a specific minimum-dwell assumption; it is not a guarantee of what would happen in real operations.
 
 ## Benchmark status
 
@@ -29,12 +29,13 @@ A single local late-train request completed in approximately 3.5 seconds, includ
 
 ## System architecture
 
-The React controller screen reads the synthetic timetable and submits previews and decisions to a FastAPI service. The service stores simulation state in memory and calls the OR-Tools CP-SAT scheduler. A separate event simulator replays FCFS, priority and solver-guided plans for the benchmark. There is no live railway integration or durable operational audit.
+The React controller screen reads the synthetic timetable and submits previews and decisions to a FastAPI service. The service calls the OR-Tools CP-SAT scheduler. A separate event simulator replays FCFS, priority and solver-guided plans for the benchmark. When configured, the backend can make on-demand RailRadar reference requests and store board snapshots, saved routes, previews, incident history and simulated instructions in a local SQLite file. This is not a live railway control integration or a durable operational audit.
 
 - [Formulation](./FORMULATION.md): model constraints, objective and explanation approach.
 - [Safety and limitations](./SAFETY_AND_LIMITATIONS.md): prototype boundaries and remaining work.
 - [Demo script](./DEMO_SCRIPT.md): a four-minute walkthrough using current values.
-- [Data plan](./DATA_PLAN.md): background on synthetic corridor generation; check it against the current model before using its older claims.
+- [Data plan](./DATA_PLAN.md): current assumptions, synthetic traffic model and data boundaries.
+- [Infrastructure manifest](./backend/data/infrastructure.json): generated view of the current station, block and runtime assumptions. Regenerate with `python backend/export_infrastructure.py` after changing the model.
 
 ---
 
@@ -51,7 +52,7 @@ These tests cover solver timing, single- and double-track maintenance exclusion,
 
 ### 2. Frontend Component & Logic Tests (Vitest)
 ```bash
-# Run all 47 frontend tests
+# Run all frontend tests
 npm test -- --run
 ```
 Run this after frontend changes.

@@ -223,35 +223,21 @@ def build_station_arrivals(
 
         rec_dto = None
         if matched_rec:
-            is_platform_change = (
-                getattr(matched_rec, "decision_type", "") == "PLATFORM_CHANGE" or
-                getattr(matched_rec, "station_id", "") == station_id
-            )
+            is_platform_change = getattr(matched_rec, "decision_type", "") == "PLATFORM_CHANGE"
             saved_val = getattr(matched_rec, "weighted_minutes_saved", None)
-            saved_min = round(float(saved_val), 1) if saved_val is not None else 6.0
+            saved_min = round(float(saved_val), 1) if saved_val is not None else None
             rec_dto = {
                 "id": matched_rec.id,
                 "action_type": getattr(matched_rec, "decision_type", "PLATFORM_CHANGE"),
                 "title": getattr(matched_rec, "action_description", f"Re-platform {t_id}"),
                 "reason": getattr(matched_rec, "one_line_reason", ""),
-                "savings_text": f"Saves {saved_min:.0f} min. If rejected +{saved_min:.0f}",
+                "savings_text": f"Estimated weighted delay difference: {saved_min:.0f} min" if saved_min is not None else "Impact not measured",
                 "can_station_master_accept": is_platform_change,
                 "button_label": "Accept" if is_platform_change else "Send to controller",
             }
-        elif del_min > 3.0:
-            # Deterministic default station fix if no solver precedence active
-            rec_dto = {
-                "id": f"REC-SM-{t_id}",
-                "action_type": "PLATFORM_CHANGE",
-                "title": f"Move {t_id} to Platform {(entry.assigned_platform % 6) + 1}",
-                "reason": f"Alleviates platform contention at {station_id}",
-                "savings_text": f"Saves {min(del_min, 6.0):.0f} min. If rejected +{min(del_min, 6.0):.0f}",
-                "can_station_master_accept": True,
-                "button_label": "Accept",
-            }
 
         train_cls_str = t_run.train_class.value if t_run else ("Freight" if "FRT" in t_id else "Passenger")
-        is_synthetic = "FRT" in t_id or train_cls_str.lower() == "freight"
+        is_synthetic = True  # This endpoint uses the generated timetable for every class.
 
         arrivals.append({
             "train_id": t_id,

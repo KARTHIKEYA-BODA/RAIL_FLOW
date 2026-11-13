@@ -1,31 +1,16 @@
 # Data Plan & Corridor Simulation Specification (PS-09 Railway Brain)
 
-## 1. Physical Corridor Specification: Secunderabad – Wadiaram
+## 1. Corridor Model and Data Boundaries
 
-The operational network models a critical 70 km segment of the Indian Railways South Central Railway (SCR) division connecting Secunderabad to Wadiaram, including terminal links to Hyderabad Deccan (HYB) and Kacheguda (KCG).
+The executable prototype model is exported to [`backend/data/infrastructure.json`](backend/data/infrastructure.json) by `backend/export_infrastructure.py`; the API exposes the same current model at `/corridor/infrastructure`. The export includes every modeled station and block, track type, assumed platform and loop counts, class speed caps, and calculated minimum runtime for all four classes.
 
-### Station Infrastructure Topology
+**Every infrastructure value is currently an assumption.** The repository does not contain railway engineering records that verify track configuration, block boundaries, loop capacity, platform capacity, speed limits, or headways. The labels `single` and `double` describe the simulation model only. They must not be read as a surveyed route or as proof of safe train separation.
 
-| Station Code | Station Name | Cumulative Distance (km) | Platforms / Loops | Track Topology to Next Station |
-|---|---|---|---|---|
-| **HYB** | Hyderabad Deccan (Terminus) | -9.8 km | 4 Platforms | Double Track to SC |
-| **KCG** | Kacheguda (Junction) | -7.2 km | 3 Platforms | Double Track to SC |
-| **SC** | Secunderabad Junction | **0.0 km** | 6 Platforms | Double Track to MJF (5.5 km) |
-| **MJF** | Malkajgiri Junction | **5.5 km** | 3 Loops | Double Track to BMO (9.3 km) |
-| **BMO** | Bolarum | **14.8 km** | 3 Loops | **Single Track begins** to MED (13.2 km) |
-| **MED** | Medchal | **28.0 km** | 2 Loops | Single Track to MOB (14.0 km) |
-| **MOB** | Manoharabad Junction | **42.0 km** | 3 Loops | Single Track to ME (14.5 km) |
-| **ME** | Masaipet | **56.5 km** | 2 Loops | Single Track to WDR (13.5 km) |
-| **WDR** | Wadiaram | **70.0 km** | 3 Loops | Corridor Terminus / Handover |
+The main solver order is `SC → MJF → BMO → MED → MOB → ME → WDR`. HYB and KCG are auxiliary modeled nodes. Intermediate halts such as Gowdavalli, Dabilpur, Brahmanpalli, and Srinivasa Nagar have not been inserted into the solver because this workspace does not have a checked source defining their current order, block relationship, and model timings. Their absence is a known coverage gap; a route that skips a modeled station is excluded from timetable replay instead of having an invented movement filled in.
 
-### Critical Operational Bottlenecks
-1. **The BMO – WDR Single-Track Chokepoint (55.2 km)**:
-   - Between Bolarum and Wadiaram, the mainline collapses to a single bidirectional track.
-   - Any two trains traveling in opposite directions (UP towards SC, DOWN towards WDR) must be scheduled to pass each other exclusively at the intermediate station loops (`MED`, `MOB`, `ME`).
-   - If a train is delayed entering this single-track bottleneck, an uncoordinated dispatcher will cause an accordion deadlock where opposing trains meet face-to-face, forcing reverse shunting or massive cascade delays.
+Runtime values in the manifest use `distance / class speed × 3600`, rounded to seconds. They are simplified model minimums, not runtimes derived from verified operating timetables. Model speed assumptions are 100 km/h Express, 80 Suburban, 75 Passenger, and 60 Freight; weighted-delay costs use weights 3, 2, 1.5, and 1 respectively. These weights and speeds describe the experiment, not Indian Railways policy.
 
-2. **Secunderabad Junction Throat (SC)**:
-   - Intersecting junction where suburban MMTS, long-distance express rakes, and through freight traffic converge onto shared platform leads.
+Do not use the suggested Google/Claude train list or the synthetic benchmark as a verified traffic census. Provider schedules are normalized from RailRadar only after a user checks a route. The provider board and saved route records are timetable/reference observations, not block occupancy or proof of the train's exact location.
 
 ---
 

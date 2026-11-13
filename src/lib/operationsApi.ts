@@ -144,6 +144,7 @@ export interface IncidentCreatePayload {
   type: 'late_train' | 'loco_failure' | 'signal_failure' | 'speed_restriction' | 'platform_blocked' | 'safety_incident' | 'other';
   train_ids?: string[];
   platform?: number | null;
+  block_id?: string | null;
   est_duration_min: number;
   note?: string;
   reported_by?: string;

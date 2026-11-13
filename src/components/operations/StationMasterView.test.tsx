@@ -71,6 +71,9 @@ beforeEach(() => {
     'fetch',
     vi.fn((url: string) => {
       const path = String(url);
+      if (path.includes('/corridor/blocks')) {
+        return Promise.resolve({ ok: true, json: async () => [{ id: 'SC_MJF', from_station: 'SC', to_station: 'MJF' }] });
+      }
       if (path.includes('/arrivals')) {
         return Promise.resolve({
           ok: true,
@@ -118,6 +121,11 @@ describe('StationMasterView', () => {
       expect(screen.getAllByText(/Inferred/i).length).toBeGreaterThan(0);
       expect(screen.getByText(/Inferred: P1 still occupied by T107 until 09:58/i)).toBeInTheDocument();
       expect(screen.getByText('Move T104 to Platform 3')).toBeInTheDocument();
+      expect(screen.getByText(/Section Control reviews and decides this recommendation/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Accept$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Reject$/i })).not.toBeInTheDocument();
+      expect(screen.getByText(/Controller verifies clearance/i)).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Resolve$/i })).not.toBeInTheDocument();
     });
   });
 
@@ -154,6 +162,8 @@ describe('StationMasterView', () => {
 
     // Step 2: Target
     expect(screen.getByText(/Step 2 · Target Train or Platform/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('option', { name: 'SC – MJF' })).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText(/Affected simulated section/i), { target: { value: 'SC_MJF' } });
     fireEvent.click(screen.getByText('Next Step'));
 
     // Step 3: Duration

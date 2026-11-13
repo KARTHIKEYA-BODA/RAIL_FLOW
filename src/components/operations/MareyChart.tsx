@@ -27,6 +27,7 @@ export interface MareyChartProps {
   onResolveConflict?: (conflictId: string) => void;
   stationFocus?: string;
   onSelectStation?: (stationId: string) => void;
+  replay?: boolean;
 }
 
 interface TrajectoryPoint {
@@ -87,6 +88,7 @@ export function MareyChart({
   onResolveConflict,
   stationFocus = 'ALL',
   onSelectStation,
+  replay = false,
 }: MareyChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -141,7 +143,7 @@ export function MareyChart({
 
   // Live simulation ticking clock
   const [simClockMs, setSimClockMs] = useState<number>(() => now.getTime());
-  const [isSimPlaying, setIsSimPlaying] = useState<boolean>(true);
+  const [isSimPlaying, setIsSimPlaying] = useState<boolean>(!replay);
 
   useEffect(() => {
     if (!isSimPlaying) return;
@@ -553,7 +555,7 @@ export function MareyChart({
               title={isSimPlaying ? 'Pause live clock' : 'Play live clock'}
             >
               {isSimPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-              <span>{isSimPlaying ? 'LIVE' : 'PAUSED'}</span>
+              <span>{replay ? (isSimPlaying ? 'REPLAY' : 'PAUSED') : (isSimPlaying ? 'SIM' : 'PAUSED')}</span>
             </button>
             <button
               type="button"
@@ -821,7 +823,7 @@ export function MareyChart({
               style={{ left: `${nowPct}%` }}
             >
               <div className="absolute top-1.5 -translate-x-1/2 rounded bg-[#f2b84b] px-2.5 py-0.5 text-xs font-semibold text-[#1c1710] font-mono shadow-md whitespace-nowrap">
-                NOW {formatTime(now.toISOString())}
+                {replay ? 'REPLAY' : 'NOW'} {formatTime(new Date(simClockMs).toISOString())}
               </div>
             </div>
           )}
@@ -1126,7 +1128,7 @@ export function MareyChart({
                 <div className="flex justify-between">
                   <span>At Station:</span>
                   <strong className="text-white font-medium">
-                    {hoveredTrain.nearestStation} · Platform {hoveredTrain.platform}
+                    {hoveredTrain.nearestStation} · {hoveredTrain.platform > 0 ? `Platform ${hoveredTrain.platform}` : 'Platform unknown'}
                   </strong>
                 </div>
                 <div className="flex justify-between">

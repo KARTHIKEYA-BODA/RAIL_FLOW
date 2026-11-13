@@ -1,5 +1,11 @@
 """Shared fixtures for backend tests."""
 import json
+import os
+import tempfile
+
+# Isolate all backend tests from the user's runtime database, even during module import.
+_test_db_dir = tempfile.TemporaryDirectory(prefix="railflow-tests-")
+os.environ["RAILFLOW_SNAPSHOT_DB"] = os.path.join(_test_db_dir.name, "runtime.sqlite3")
 from pathlib import Path
 
 import pytest
